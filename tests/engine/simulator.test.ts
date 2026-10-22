@@ -5,16 +5,7 @@ import { SPECIES } from '../../src/engine/data/species';
 import { parseFormula } from '../../src/engine/formula';
 
 function totalAtoms(m: Mixture): Record<string, number> {
-  const totals: Record<string, number> = {};
-  for (const [spId, moles] of Object.entries(m.moles)) {
-    if (moles <= 0) continue;
-    const sp = SPECIES[spId];
-    const atoms = parseFormula(sp.formula);
-    for (const [el, count] of Object.entries(atoms)) {
-      totals[el] = (totals[el] ?? 0) + count * moles;
-    }
-  }
-  return totals;
+  return m.totalAtoms();
 }
 
 describe('Simulator (kinetics, limiting reagent, time stepping)', () => {
@@ -159,5 +150,25 @@ describe('Simulator (kinetics, limiting reagent, time stepping)', () => {
     expect(m.moles.NH3).toBeGreaterThan(0);
     expect(m.moles.NH3).toBeLessThan(2.0);
     expect(m.moles.N2).toBeGreaterThan(0);
+  });
+
+  it('conserves atoms in closed vessels including aqueous solvent water across neutralization and precipitation', () => {
+    const m = new Mixture({ volumeL: 0.1, tempK: 298.15 });
+    m.add('HCl', 0.05);
+    m.add('NaOH', 0.05);
+
+    const atomsBefore = m.totalAtoms();
+    const massBefore = m.totalMass();
+    expect(m.solventWaterMoles()).toBeGreaterThan(5.0);
+
+    const sim = new Simulator(m, { vesselL: 0.25, closed: true });
+    const res = sim.step(0.5);
+    expect(res.reactionsFired).toContain('hcl_naoh');
+
+    const atomsAfter = m.totalAtoms();
+    for (const [el, count] of Object.entries(atomsBefore)) {
+      expect(atomsAfter[el]).toBeCloseTo(count, 6);
+    }
+    expect(m.totalMass()).toBeCloseTo(massBefore, 4);
   });
 });

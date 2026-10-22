@@ -173,11 +173,15 @@ describe('UI Equipment & Bench Logic (pour math, overflow clamp, transfers)', ()
     expect(idleStep.hazards).not.toContain('burst');
     expect(flask.burst).toBe(false);
 
-    // Heating closed gas vessel beyond burst limit triggers burst and spills contents
+    // Heating closed gas vessel beyond burst limit triggers burst, spills contents, and resets vessel T/P to ambient
     const burstStep = runClosedGasBurstScenario(flask);
     expect(burstStep.hazards).toContain('burst');
     expect(flask.burst).toBe(true);
     expect(flask.mixture.totalMass()).toBe(0);
+    expect(flask.mixture.tempK).toBeCloseTo(298.15, 2);
+    expect(flask.lastStepResult.tempK).toBeCloseTo(298.15, 2);
+    expect(flask.lastStepResult.pressureKPa).toBeCloseTo(101.3, 1);
+    expect(flask.peakBurstPressureKPa).toBeGreaterThan(300);
   });
 
   it('vents excess gas in open vessels so pressure stays near ~101.3 kPa and includes all 10 catalog items', () => {
@@ -189,6 +193,7 @@ describe('UI Equipment & Bench Logic (pour math, overflow clamp, transfers)', ()
     expect(openBeaker.burst).toBe(false);
     expect(res.pressureKPa).toBeLessThanOrEqual(105);
     expect(openBeaker.mixture.moles.N2).toBeLessThan(0.5);
+    expect((openBeaker.ventedMoles.N2 ?? 0) + (openBeaker.mixture.moles.N2 ?? 0)).toBeCloseTo(0.5, 5);
 
     const catalogTypes = EQUIPMENT_CATALOG.map((item) => item.type);
     expect(catalogTypes).toEqual(
@@ -207,19 +212,57 @@ describe('UI Equipment & Bench Logic (pour math, overflow clamp, transfers)', ()
     );
   });
 
-  it('verifies neutralize, Na+H2O hazard, and NaOCl+NH3 hazard scenario functions', () => {
+  it('gives 31.8 °C (±1.5 °C), pH 7.0 (±0.1), and ~100 g (±5%) mass for 50 mL 1.0 M HCl + 50 mL 1.0 M NaOH from 25.0 °C', () => {
     const beaker = createVessel('beaker', 100, 100);
     const neutRes = runNeutralizeScenario(beaker);
     expect(neutRes.reactionsFired).toContain('hcl_naoh');
-    expect(pH(beaker.mixture)).toBeCloseTo(7.0, 1);
-    expect(beaker.mixture.tempK).toBeGreaterThan(298.15);
 
+    const finalTempC = beaker.mixture.tempK - 273.15;
+    expect(Math.abs(finalTempC - 31.8)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(pH(beaker.mixture) - 7.0)).toBeLessThanOrEqual(0.1);
+
+    const massG = beaker.mixture.totalMass();
+    expect(Math.abs(massG - 100.0)).toBeLessThanOrEqual(5.0);
+  });
+
+  it('computes NaOCl + NH3 temperature change within ±1 K of the heat balance and accounts for vented H2 in Na + H2O', () => {
+    const beaker = createVessel('beaker', 100, 100);
+
+    // Na + H2O: 2.0 g Na (0.086994 mol) produces 0.043497 mol H2; vented + remaining must equal produced
     const naRes = runSodiumWaterHazardScenario(beaker);
     expect(naRes.reactionsFired).toContain('na_h2o');
     expect(naRes.hazards).toContain('explosive');
+    const expectedProducedH2 = (2.0 / SPECIES.Na.molarMass) * 0.5;
+    const remainingH2 = beaker.mixture.moles.H2 ?? 0;
+    const ventedH2 = beaker.ventedMoles.H2 ?? 0;
+    expect(ventedH2).toBeGreaterThan(0.03);
+    expect(remainingH2).toBeGreaterThan(0.004);
+    expect(ventedH2 + remainingH2).toBeCloseTo(expectedProducedH2, 5);
 
+    // NaOCl + NH3(aq): temperature change matches heat balance Q / Cp within ±1 K
     const clRes = runChloramineHazardScenario(beaker);
     expect(clRes.reactionsFired).toContain('naocl_nh3_aq_chloramine');
     expect(clRes.hazards).toContain('toxic');
+    const actualDeltaT = beaker.mixture.tempK - 298.15;
+    const expectedDeltaT = clRes.heatJ / beaker.mixture.heatCapacity();
+    expect(Math.abs(actualDeltaT - expectedDeltaT)).toBeLessThanOrEqual(1.0);
+    expect(Math.abs(actualDeltaT)).toBeLessThanOrEqual(2.0);
+  });
+
+  it('conserves all atoms including solvent water in a closed vessel', () => {
+    const flask = createVessel('flask', 100, 100);
+    flask.closed = true;
+    flask.simulator.closed = true;
+    pourChemical(flask, 'HCl', 50, 'mL', { molarity: 1.0 });
+    pourChemical(flask, 'NaOH', 50, 'mL', { molarity: 1.0 });
+
+    const atomsBefore = flask.mixture.totalAtoms();
+    const res = stepVesselPhysics(flask, 0.2);
+    expect(res.reactionsFired).toContain('hcl_naoh');
+    const atomsAfter = flask.mixture.totalAtoms();
+
+    for (const [el, count] of Object.entries(atomsBefore)) {
+      expect(atomsAfter[el]).toBeCloseTo(count, 6);
+    }
   });
 });

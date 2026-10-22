@@ -378,8 +378,8 @@ export class LabBench {
     } else if (preset === 'hazard_chloramine') {
       const target = this.getSelectedVessel() ?? vessels[0];
       resetVesselState(target);
-      this.pourIntoVessel(target, 'NaOCl', 40, 'mL', { molarity: 1.0 });
-      this.pourIntoVessel(target, 'NH3(aq)', 40, 'mL', { molarity: 1.0 });
+      this.pourIntoVessel(target, 'NaOCl', 40, 'mL', { molarity: 0.5 });
+      this.pourIntoVessel(target, 'NH3(aq)', 40, 'mL', { molarity: 0.5 });
       this.callbacks.onSelectVessel(target);
     }
   }
@@ -498,6 +498,21 @@ export class LabBench {
       this.effects.triggerPrecipitate(vessel, pInfo.color, 18);
     }
 
+    if (result.vented) {
+      for (const [spId, ventedMol] of Object.entries(result.vented)) {
+        if (ventedMol >= 1e-4) {
+          const sp = SPECIES[spId];
+          const formula = sp ? sp.formula : spId;
+          const remainingMol = vessel.mixture.moles[spId] ?? 0;
+          this.callbacks.onLogEvent(
+            'vent',
+            `Vented ${ventedMol.toFixed(4)} mol ${formula} to atmosphere (${remainingMol.toFixed(4)} mol remaining in ${vessel.label})`,
+            vessel
+          );
+        }
+      }
+    }
+
     if (result.hazards.length > 0) {
       this.dirty = true;
       const isBurst = result.hazards.includes('burst');
@@ -506,17 +521,20 @@ export class LabBench {
         this.effects.triggerExplosion(vessel);
       }
 
+      const peakP =
+        result.peakBurstPressureKPa ?? vessel.peakBurstPressureKPa ?? result.pressureKPa;
+
       if (isBurst) {
         this.callbacks.onLogEvent(
           'hazard',
-          `Vessel ruptured! Internal gas pressure (${result.pressureKPa.toFixed(0)} kPa) shattered ${vessel.label} and spilled contents.`,
+          `Vessel ruptured! Peak internal gas pressure (${peakP.toFixed(0)} kPa) shattered ${vessel.label} and spilled contents.`,
           vessel,
           { hazards: result.hazards }
         );
       }
 
       const eqSummary = isBurst
-        ? `Overpressure (${result.pressureKPa.toFixed(0)} kPa) shattered ${vessel.label}! Contents spilled on bench.`
+        ? `Overpressure (peak ${peakP.toFixed(0)} kPa) shattered ${vessel.label}! Contents spilled on bench.`
         : result.reactionsFired.length > 0
           ? result.reactionsFired.map((id) => formatReactionEquation(id)).join(' ; ')
           : `Hazardous condition in ${vessel.label}`;

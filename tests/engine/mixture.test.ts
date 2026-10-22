@@ -35,4 +35,15 @@ describe('Mixture model', () => {
     expect(() => m.add('UNKNOWN_SPECIES', 1)).toThrow();
     expect(m.moles.HCl).toBeUndefined();
   });
+
+  it('models aqueous solvent water mass (0.997 g/mL) and heat capacity (75.3 J/mol/K) so 100 mL aqueous solution is within 5% of 100 g', () => {
+    const m = new Mixture({ volumeL: 0.1 }); // 100 mL aqueous solution
+    m.add('HCl', 0.05);
+    m.add('NaOH', 0.05);
+
+    expect(m.solventWaterMass()).toBeCloseTo(99.7, 2);
+    const totalMass = m.totalMass();
+    expect(Math.abs(totalMass - 100.0)).toBeLessThanOrEqual(5.0);
+    expect(m.heatCapacity()).toBeGreaterThan(400.0);
+  });
 });

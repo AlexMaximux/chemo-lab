@@ -57,7 +57,7 @@ export class Simulator {
       return;
     }
     this.hasThermalOrReaction = true;
-    const cp = Math.max(this.mixture.heatCapacity(), 50.0);
+    const cp = Math.max(this.mixture.heatCapacity(), 25.0);
     this.mixture.tempK = Math.max(1.0, this.mixture.tempK + joules / cp);
 
     this.events.push({
@@ -130,7 +130,7 @@ export class Simulator {
           const rxnHeatJ = -rxn.dH * 1000.0 * dXi;
           totalHeatJ += rxnHeatJ;
 
-          const cp = Math.max(this.mixture.heatCapacity(), 50.0);
+          const cp = Math.max(this.mixture.heatCapacity(), 25.0);
           this.mixture.tempK = Math.max(1.0, this.mixture.tempK + rxnHeatJ / cp);
 
           this.events.push({
@@ -268,7 +268,9 @@ export class Simulator {
       const sp = SPECIES[pId];
       if (sp && sp.phase === 'l' && this.mixture.volumeL === 0) {
         const density = sp.density ?? 1.0;
-        this.mixture.volumeL += (added * sp.molarMass) / (density * 1000.0);
+        const addedVolL = (added * sp.molarMass) / (density * 1000.0);
+        this.mixture.volumeL += addedVolL;
+        this.mixture.liquidVolumeAddedL += addedVolL;
       }
     }
   }

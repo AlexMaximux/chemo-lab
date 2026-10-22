@@ -78,6 +78,13 @@ export interface LabVessel {
   overflowWarning: boolean;
   burst: boolean;
   spilledColor?: string;
+  ventedMoles: Record<string, number>;
+  peakBurstPressureKPa?: number;
+}
+
+export interface VesselStepResult extends StepResult {
+  vented: Record<string, number>;
+  peakBurstPressureKPa?: number;
 }
 
 export interface LabTool {
@@ -172,6 +179,7 @@ export function createVessel(
     lastReactionsFired: [],
     overflowWarning: false,
     burst: false,
+    ventedMoles: {},
   };
 }
 
@@ -211,12 +219,12 @@ export function isVesselType(type: EquipmentType): type is VesselType {
 }
 
 export function resetVesselState(vessel: LabVessel): void {
-  vessel.mixture.moles = {};
-  vessel.mixture.volumeL = 0;
-  vessel.mixture.tempK = 298.15;
+  vessel.mixture.reset();
   vessel.overflowWarning = false;
   vessel.burst = false;
   vessel.spilledColor = undefined;
+  vessel.ventedMoles = {};
+  vessel.peakBurstPressureKPa = undefined;
   vessel.lastReactionsFired = [];
   vessel.simulator.resetState();
   vessel.lastStepResult = {
@@ -232,14 +240,15 @@ export function resetVesselState(vessel: LabVessel): void {
  * Steps the vessel's chemical simulator and applies open-vessel atmospheric gas venting
  * or closed-vessel rupture/spillage rules.
  */
-export function stepVesselPhysics(vessel: LabVessel, dtSeconds: number): StepResult {
+export function stepVesselPhysics(vessel: LabVessel, dtSeconds: number): VesselStepResult {
   if (vessel.burst) {
     return {
       reactionsFired: [],
       heatJ: 0,
-      tempK: vessel.mixture.tempK,
+      tempK: 298.15,
       pressureKPa: 101.3,
       hazards: [],
+      vented: {},
     };
   }
 
@@ -247,6 +256,7 @@ export function stepVesselPhysics(vessel: LabVessel, dtSeconds: number): StepRes
   vessel.simulator.closed = vessel.closed;
 
   const result = vessel.simulator.step(dtSeconds);
+  const ventedThisStep: Record<string, number> = {};
 
   // Open vessels vent excess gas to atmosphere proportionally so pressure stays near ~101.3 kPa
   if (!vessel.closed) {
@@ -264,7 +274,13 @@ export function stepVesselPhysics(vessel: LabVessel, dtSeconds: number): StepRes
       const scale = maxAtmGasMoles / currentGasMoles;
       for (const [id, n] of Object.entries(vessel.mixture.moles)) {
         if (n > 0 && SPECIES[id]?.phase === 'g') {
-          vessel.mixture.moles[id] = n * scale;
+          const remaining = n * scale;
+          const ventedAmount = n - remaining;
+          vessel.mixture.moles[id] = remaining;
+          if (ventedAmount > 1e-8) {
+            ventedThisStep[id] = (ventedThisStep[id] ?? 0) + ventedAmount;
+            vessel.ventedMoles[id] = (vessel.ventedMoles[id] ?? 0) + ventedAmount;
+          }
         }
       }
     }
@@ -281,18 +297,27 @@ export function stepVesselPhysics(vessel: LabVessel, dtSeconds: number): StepRes
     vessel.lastReactionsFired = result.reactionsFired;
   }
 
-  // If a burst occurred (only possible when closed AND after heat or reaction), shatter vessel and spill contents
+  let peakBurstPressureKPa: number | undefined;
+  // If a burst occurred (only possible when closed AND after heat or reaction), shatter vessel, spill contents, and reset T/P to ambient
   if (result.hazards.includes('burst')) {
+    peakBurstPressureKPa = result.pressureKPa;
+    vessel.peakBurstPressureKPa = peakBurstPressureKPa;
     vessel.burst = true;
     vessel.closed = false;
     vessel.simulator.closed = false;
     vessel.spilledColor = blendMixtureColor(vessel.mixture);
-    vessel.mixture.moles = {};
-    vessel.mixture.volumeL = 0;
+    vessel.mixture.reset();
+    result.tempK = 298.15;
+    result.pressureKPa = 101.3;
   }
 
-  vessel.lastStepResult = result;
-  return result;
+  const vesselResult: VesselStepResult = {
+    ...result,
+    vented: ventedThisStep,
+    peakBurstPressureKPa,
+  };
+  vessel.lastStepResult = vesselResult;
+  return vesselResult;
 }
 
 /**
@@ -352,8 +377,8 @@ export function runSodiumWaterHazardScenario(vessel: LabVessel): StepResult {
 
 export function runChloramineHazardScenario(vessel: LabVessel): StepResult {
   resetVesselState(vessel);
-  pourChemical(vessel, 'NaOCl', 40, 'mL', { molarity: 1.0 });
-  pourChemical(vessel, 'NH3(aq)', 40, 'mL', { molarity: 1.0 });
+  pourChemical(vessel, 'NaOCl', 40, 'mL', { molarity: 0.5 });
+  pourChemical(vessel, 'NH3(aq)', 40, 'mL', { molarity: 0.5 });
   return stepVesselPhysics(vessel, 0.1);
 }
 
@@ -656,6 +681,11 @@ export function transferBetweenVessels(
   }
 
   source.mixture.volumeL = Math.max(0, sourceVolL - actualTransferVolL);
+  source.mixture.liquidVolumeAddedL = Math.max(0, source.mixture.liquidVolumeAddedL * (1 - fraction));
+  source.mixture.solidVolumeAddedL = Math.max(0, source.mixture.solidVolumeAddedL * (1 - fraction));
+  if (source.mixture.volumeL <= 1e-12) {
+    source.mixture.hasAqueousSolvent = false;
+  }
   target.mixture.volumeL = Math.max(
     0,
     Math.min(target.capacityL, targetVolBefore + actualTransferVolL)

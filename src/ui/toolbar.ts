@@ -467,6 +467,10 @@ export class ToolbarAndInspectorUI {
     }
 
     const entries = Object.entries(vessel.mixture.moles).filter(([, n]) => n > 1e-9);
+    const solventMoles = vessel.mixture.solventWaterMoles();
+    const solventMassG = vessel.mixture.solventWaterMass();
+    const solventVolML = vessel.mixture.solventWaterVolumeL() * 1000;
+    const ventedEntries = Object.entries(vessel.ventedMoles).filter(([, n]) => n > 1e-5);
     const hasContents = entries.length > 0;
     const tempC = vessel.mixture.tempK - 273.15;
     const phVal = hasContents ? pH(vessel.mixture) : 7.0;
@@ -520,7 +524,7 @@ export class ToolbarAndInspectorUI {
         ${
           vessel.burst
             ? `<div class="shattered-banner">
-                <span>⚠ VESSEL SHATTERED BY OVERPRESSURE (Contents Spilled)</span>
+                <span>⚠ VESSEL SHATTERED BY OVERPRESSURE${vessel.peakBurstPressureKPa ? ` (Peak ${vessel.peakBurstPressureKPa.toFixed(0)} kPa)` : ''}</span>
                 <button type="button" class="insp-btn" id="insp-btn-restore">Restore Vessel</button>
               </div>`
             : ''
@@ -598,8 +602,32 @@ export class ToolbarAndInspectorUI {
                         `;
                       })
                       .join('')}
+                    ${
+                      solventMoles > 1e-6
+                        ? `
+                          <tr>
+                            <td>
+                              <span class="tbl-formula">H₂O</span>
+                              <span class="chem-phase phase-l">solvent</span>
+                            </td>
+                            <td class="num-col">${solventMoles.toFixed(2)}</td>
+                            <td class="num-col">${solventMassG.toFixed(1)}g</td>
+                            <td class="num-col">${solventVolML.toFixed(1)} mL</td>
+                          </tr>
+                        `
+                        : ''
+                    }
                   </tbody>
                 </table>`
+          }
+          ${
+            ventedEntries.length > 0
+              ? `<div class="rxn-none" style="margin-top:4px;font-size:9.5px;">
+                  Vented to atmosphere: ${ventedEntries
+                    .map(([id, n]) => `${n.toFixed(4)} mol ${formatFormula(SPECIES[id]?.formula ?? id)}`)
+                    .join(', ')}
+                </div>`
+              : ''
           }
         </div>
 

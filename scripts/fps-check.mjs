@@ -34,6 +34,31 @@ async function measureRafFps(page, durationMs = 3000) {
   }, durationMs);
 }
 
+async function readInspectorMetrics(page) {
+  return await page.evaluate(() => {
+    const boxes = Array.from(document.querySelectorAll('#vessel-inspector-card .metric-box'));
+    const metrics = {};
+    for (const box of boxes) {
+      const label = box.querySelector('.metric-label')?.textContent?.trim() || '';
+      const val = box.querySelector('.metric-value')?.textContent?.trim() || '';
+      const sub = box.querySelector('.metric-sub')?.textContent?.trim() || '';
+      metrics[label] = { value: val, sub };
+    }
+    const rows = Array.from(document.querySelectorAll('#vessel-inspector-card .contents-table tbody tr')).map(
+      (tr) => {
+        const tds = Array.from(tr.querySelectorAll('td')).map((td) => td.textContent.trim().replace(/\s+/g, ' '));
+        return { species: tds[0], moles: tds[1], mass: tds[2], volOrConc: tds[3] };
+      }
+    );
+    const ventedNote =
+      Array.from(document.querySelectorAll('#vessel-inspector-card .rxn-none'))
+        .map((el) => el.textContent.trim())
+        .find((t) => t.startsWith('Vented to atmosphere:')) || null;
+    const notebookLogText = document.querySelector('#notebook-log-list')?.innerText || '';
+    return { metrics, rows, ventedNote, notebookLogText };
+  });
+}
+
 async function main() {
   const { proc, url } = await ensureDevServer(DEFAULT_URL);
   const { chromium } = await loadPlaywright();
@@ -98,6 +123,51 @@ async function main() {
     const inspectorText = await page.locator('#vessel-inspector-card').innerText();
     const synthesizedWater =
       inspectorText.includes('H₂O') && inspectorText.includes('0.0200');
+    const makeWaterMetrics = await readInspectorMetrics(page);
+
+    // 5. Verify all other scenarios in browser
+    await page.click('[data-preset="neutralize"]');
+    await page.waitForTimeout(50);
+    const neutralizeMetrics = await readInspectorMetrics(page);
+
+    await page.click('[data-preset="heat_gas"]');
+    await page.waitForTimeout(50);
+    const heatGasMetrics = await readInspectorMetrics(page);
+
+    await page.click('[data-preset="hazard_na"]');
+    await page.waitForTimeout(50);
+    const hazardNaMetrics = await readInspectorMetrics(page);
+
+    await page.click('[data-preset="hazard_chloramine"]');
+    await page.waitForTimeout(50);
+    const hazardChloramineMetrics = await readInspectorMetrics(page);
+
+    const scenarios = {
+      make_water_ignited: {
+        metrics: makeWaterMetrics.metrics,
+        rows: makeWaterMetrics.rows,
+      },
+      neutralize: {
+        metrics: neutralizeMetrics.metrics,
+        rows: neutralizeMetrics.rows,
+      },
+      heat_gas_burst: {
+        metrics: heatGasMetrics.metrics,
+        rows: heatGasMetrics.rows,
+      },
+      hazard_na_water: {
+        metrics: hazardNaMetrics.metrics,
+        rows: hazardNaMetrics.rows,
+        ventedNote: hazardNaMetrics.ventedNote,
+        loggedVentInNotebook: /Vented .* mol H2 to atmosphere/.test(hazardNaMetrics.notebookLogText),
+      },
+      hazard_chloramine: {
+        metrics: hazardChloramineMetrics.metrics,
+        rows: hazardChloramineMetrics.rows,
+        ventedNote: hazardChloramineMetrics.ventedNote,
+        loggedVentInNotebook: /Vented .* mol NH2Cl to atmosphere/.test(hazardChloramineMetrics.notebookLogText),
+      },
+    };
 
     const report = {
       viewport: '1280x720',
@@ -108,11 +178,13 @@ async function main() {
       consoleErrors: consoleErrors.length,
       layoutChecks: layoutSummary,
       allLayoutsPassed,
+      scenarios,
       passed:
         idleResult.fps >= MIN_REQUIRED_FPS &&
         afterIgniteResult.fps >= MIN_REQUIRED_FPS &&
         synthesizedWater &&
         allLayoutsPassed &&
+        scenarios.hazard_na_water.loggedVentInNotebook &&
         consoleErrors.length === 0,
     };
 
