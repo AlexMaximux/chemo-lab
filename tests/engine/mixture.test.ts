@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Mixture } from '../../src/engine/mixture';
+import { SPECIES } from '../../src/engine/data/species';
 
 describe('Mixture model', () => {
   it('initializes with default 298.15 K and empty moles', () => {
@@ -45,5 +46,34 @@ describe('Mixture model', () => {
     const totalMass = m.totalMass();
     expect(Math.abs(totalMass - 100.0)).toBeLessThanOrEqual(5.0);
     expect(m.heatCapacity()).toBeGreaterThan(400.0);
+  });
+
+  it('counts liquid ethanol solvent mass, volume, and Cp in totalMass() and heatCapacity(), conserving atoms', () => {
+    const m = new Mixture();
+    const ethVolML = 20;
+    const ethDensity = SPECIES.C2H5OH.density!; // 0.789 g/mL
+    const ethMassG = ethVolML * ethDensity; // 15.78 g
+    const ethMoles = ethMassG / SPECIES.C2H5OH.molarMass; // ~0.3425 mol
+
+    m.add('C2H5OH', ethMoles);
+    m.add('PROPIOPHENONE', 0.004);
+    m.add('NaBH4', 0.001);
+    m.add('H2O', 0.002);
+
+    expect(m.volumeL).toBeGreaterThan(0.02);
+    expect(m.totalMass()).toBeCloseTo(ethMassG + 0.004 * 134.18 + 0.001 * 37.83 + 0.002 * 18.015, 3);
+    const expectedCp =
+      ethMoles * SPECIES.C2H5OH.Cp +
+      0.004 * SPECIES.PROPIOPHENONE.Cp +
+      0.001 * SPECIES.NaBH4.Cp +
+      0.002 * SPECIES.H2O.Cp;
+    expect(m.heatCapacity()).toBeCloseTo(expectedCp, 2);
+
+    const atoms = m.totalAtoms();
+    expect(atoms.C).toBeCloseTo(2 * ethMoles + 9 * 0.004, 5);
+    expect(atoms.H).toBeCloseTo(6 * ethMoles + 10 * 0.004 + 4 * 0.001 + 2 * 0.002, 5);
+    expect(atoms.O).toBeCloseTo(1 * ethMoles + 1 * 0.004 + 1 * 0.002, 5);
+    expect(atoms.Na).toBeCloseTo(0.001, 5);
+    expect(atoms.B).toBeCloseTo(0.001, 5);
   });
 });

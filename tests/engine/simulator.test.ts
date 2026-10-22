@@ -227,4 +227,38 @@ describe('Simulator (kinetics, limiting reagent, time stepping)', () => {
     }
     expect(m.totalMass()).toBeCloseTo(massBefore, 3);
   });
+
+  it('reduces 0.004 mol propiophenone with 0.001 mol NaBH4 and 0.002 mol H2O in 20 mL ethanol with atoms conserved and 5-15 K temperature rise', () => {
+    const m = new Mixture({ tempK: 298.15 });
+    const ethMoles = (20 * SPECIES.C2H5OH.density!) / SPECIES.C2H5OH.molarMass;
+    m.add('C2H5OH', ethMoles);
+    m.add('PROPIOPHENONE', 0.004);
+    m.add('NaBH4', 0.001);
+    m.add('H2O', 0.002);
+
+    const atomsBefore = m.totalAtoms();
+    const massBefore = m.totalMass();
+    const tempBefore = m.tempK;
+
+    const sim = new Simulator(m, { vesselL: 0.25, closed: false });
+    const res = sim.step(0.5);
+
+    expect(res.reactionsFired).toContain('propiophenone_nabh4_reduction');
+    expect(m.moles.PROPIOPHENONE ?? 0).toBeCloseTo(0, 4);
+    expect(m.moles.NaBH4 ?? 0).toBeCloseTo(0, 4);
+    expect(m.moles.H2O ?? 0).toBeCloseTo(0, 4);
+    expect(m.moles.PHENYLPROPANOL).toBeCloseTo(0.004, 4);
+    expect(m.moles.NaBO2).toBeCloseTo(0.001, 4);
+    expect(m.moles.C2H5OH).toBeCloseTo(ethMoles, 4);
+
+    const tempRise = m.tempK - tempBefore;
+    expect(tempRise).toBeGreaterThanOrEqual(5.0);
+    expect(tempRise).toBeLessThanOrEqual(15.0);
+
+    const atomsAfter = m.totalAtoms();
+    for (const [el, count] of Object.entries(atomsBefore)) {
+      expect(atomsAfter[el]).toBeCloseTo(count, 5);
+    }
+    expect(m.totalMass()).toBeCloseTo(massBefore, 3);
+  });
 });

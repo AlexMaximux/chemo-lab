@@ -391,9 +391,10 @@ export function runNaBH4AcidScenario(vessel: LabVessel): VesselStepResult {
 
 export function runPropiophenoneReductionScenario(vessel: LabVessel): VesselStepResult {
   resetVesselState(vessel);
-  pourChemical(vessel, 'PROPIOPHENONE', 0.04, 'mol');
-  pourChemical(vessel, 'NaBH4', 0.01, 'mol');
-  pourChemical(vessel, 'H2O', 0.02, 'mol');
+  pourChemical(vessel, 'C2H5OH', 20, 'mL');
+  pourChemical(vessel, 'PROPIOPHENONE', 0.004, 'mol');
+  pourChemical(vessel, 'NaBH4', 0.001, 'mol');
+  pourChemical(vessel, 'H2O', 0.002, 'mol');
   return stepVesselPhysics(vessel, 0.1);
 }
 

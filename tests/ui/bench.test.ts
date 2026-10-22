@@ -306,16 +306,63 @@ describe('UI Equipment & Bench Logic (pour math, overflow clamp, transfers)', ()
     expect(phenylIds).toContain('PHENYLPROPANOL');
   });
 
-  it('runs the Propiophenone + NaBH4 scenario, reducing propiophenone to 1-phenyl-1-propanol with calorimetric temperature rise', () => {
+  it('runs the Propiophenone + NaBH4 scenario in ethanol solvent, reducing propiophenone with realistic 5-15 K temperature rise', () => {
     const beaker = createVessel('beaker', 100, 100);
     const res = runPropiophenoneReductionScenario(beaker);
 
     expect(res.reactionsFired).toContain('propiophenone_nabh4_reduction');
-    expect(beaker.mixture.moles.PHENYLPROPANOL).toBeCloseTo(0.04, 4);
-    expect(beaker.mixture.moles.NaBO2).toBeCloseTo(0.01, 4);
+    expect(beaker.mixture.moles.PHENYLPROPANOL).toBeCloseTo(0.004, 4);
+    expect(beaker.mixture.moles.NaBO2).toBeCloseTo(0.001, 4);
     expect(beaker.mixture.moles.PROPIOPHENONE ?? 0).toBeCloseTo(0, 4);
     expect(beaker.mixture.moles.NaBH4 ?? 0).toBeCloseTo(0, 4);
+    expect(beaker.mixture.moles.C2H5OH).toBeGreaterThan(0.3);
 
-    expect(beaker.mixture.tempK).toBeGreaterThan(350);
+    // Temperature rise between 5 and 15 K from 298.15 K (~38.2 °C, well below boiling point of propiophenone)
+    const tempRise = beaker.mixture.tempK - 298.15;
+    expect(tempRise).toBeGreaterThanOrEqual(5.0);
+    expect(tempRise).toBeLessThanOrEqual(15.0);
+    expect(beaker.mixture.tempK - 273.15).toBeLessThan(100.0);
+  });
+
+  it('verifies that no scenario preset ends above 100 °C unless it is a flame/ignition scenario', () => {
+    // 1. make_water without ignition (unignited mixture is cold/room temp 25 °C)
+    const bWater = createVessel('gas_jar', 100, 100);
+    runMakeWaterScenario(bWater, false);
+    expect(bWater.mixture.tempK - 273.15).toBeLessThanOrEqual(100.0);
+
+    // 2. make_water WITH ignition is a flame/ignition scenario and is allowed to be hot (> 100 °C)
+    const bWaterIgnited = createVessel('gas_jar', 100, 100);
+    runMakeWaterScenario(bWaterIgnited, true);
+    expect(bWaterIgnited.mixture.tempK - 273.15).toBeGreaterThan(100.0);
+
+    // 3. neutralize
+    const bNeut = createVessel('beaker', 100, 100);
+    runNeutralizeScenario(bNeut);
+    expect(bNeut.mixture.tempK - 273.15).toBeLessThanOrEqual(100.0);
+
+    // 4. heat_gas (gas burst initial preset)
+    const bGas = createVessel('flask', 100, 100);
+    runClosedGasBurstScenario(bGas);
+    expect(bGas.mixture.tempK - 273.15).toBeLessThanOrEqual(100.0);
+
+    // 5. hazard_na (sodium + water)
+    const bNa = createVessel('beaker', 100, 100);
+    runSodiumWaterHazardScenario(bNa);
+    expect(bNa.mixture.tempK - 273.15).toBeLessThanOrEqual(100.0);
+
+    // 6. hazard_chloramine (bleach + ammonia)
+    const bChlor = createVessel('beaker', 100, 100);
+    runChloramineHazardScenario(bChlor);
+    expect(bChlor.mixture.tempK - 273.15).toBeLessThanOrEqual(100.0);
+
+    // 7. nabh4_hcl (borohydride + acid)
+    const bNaBH4 = createVessel('beaker', 100, 100);
+    runNaBH4AcidScenario(bNaBH4);
+    expect(bNaBH4.mixture.tempK - 273.15).toBeLessThanOrEqual(100.0);
+
+    // 8. propiophenone_nabh4 (propiophenone reduction in ethanol solvent)
+    const bPropio = createVessel('beaker', 100, 100);
+    runPropiophenoneReductionScenario(bPropio);
+    expect(bPropio.mixture.tempK - 273.15).toBeLessThanOrEqual(100.0);
   });
 });

@@ -71,9 +71,9 @@ The engine contains zero DOM imports and is independently testable:
    - Watch internal gas pressure (kPa) climb according to $PV = nRT$ until the vessel exceeds `300 kPa` and triggers a **BURST** hazard with flash, shake, and safety banner.
 4. **Hazardous Reactions ($\text{Na} + \text{H}_2\text{O}$ or $\text{NaOCl} + \text{NH}_3$)**:
    - Click **`Na + H₂O Hazard`** or **`NaOCl + NH₃`** to observe vigorous gas evolution, exothermic temperature jump, explosion/toxic gas warnings, and automatic hazard logging in the Lab Notebook.
-5. **Carbonyl Reduction ($\text{Propiophenone} + \text{NaBH}_4$)**:
-   - Click **`Propiophenone + NaBH4`** to set up 0.04 mol propiophenone, 0.01 mol NaBH₄, and 0.02 mol H₂O in a beaker.
-   - Observe immediate reduction to 0.04 mol 1-phenyl-1-propanol and 0.01 mol NaBO₂ with strong exothermic warming, reaction equation display in the Inspector, and notebook logging.
+5. **Carbonyl Reduction ($\text{Propiophenone} + \text{NaBH}_4\text{ in Ethanol}$)**:
+   - Click **`Propiophenone + NaBH4`** to set up 0.004 mol propiophenone, 0.001 mol NaBH₄, and 0.002 mol H₂O in 20 mL ethanol solvent in a beaker.
+   - Observe realistic liquid-phase reduction to 0.004 mol 1-phenyl-1-propanol and 0.001 mol NaBO₂ with a gentle 5–15 K calorimetric warming (reaching ~38 °C, well below propiophenone's boiling point of 218 °C), reaction equation display in the Inspector, and notebook logging.
 
 ---
 
