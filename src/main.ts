@@ -26,7 +26,9 @@ export function bootstrapApp(rootEl: HTMLElement): {
       <div class="bench-overlay" id="bench-overlay"></div>
     </main>
     <footer class="lab-toolbar" id="lab-toolbar"></footer>
-    <aside class="lab-notebook" id="lab-notebook" aria-label="Laboratory Notebook and Live Telemetry">
+    <aside class="lab-notebook" id="lab-notebook" aria-label="Vessel Inspector, Live Telemetry and Lab Notebook">
+      <section class="vessel-inspector" id="vessel-inspector-card" aria-label="Selected Vessel Inspector"></section>
+
       <div class="notebook-header">
         <span class="notebook-title">LAB NOTEBOOK & TELEMETRY</span>
         <div class="notebook-export-btns">
@@ -67,6 +69,7 @@ export function bootstrapApp(rootEl: HTMLElement): {
   const headerEl = rootEl.querySelector('#lab-header') as HTMLElement;
   const canvasEl = rootEl.querySelector('#bench-canvas') as HTMLCanvasElement;
   const overlayEl = rootEl.querySelector('#bench-overlay') as HTMLElement;
+  const dockedInspectorEl = rootEl.querySelector('#vessel-inspector-card') as HTMLElement;
   const toolbarEl = rootEl.querySelector('#lab-toolbar') as HTMLElement;
   const logListEl = rootEl.querySelector('#notebook-log-list') as HTMLElement;
   const countEl = rootEl.querySelector('#notebook-entry-count') as HTMLElement;
@@ -92,7 +95,6 @@ export function bootstrapApp(rootEl: HTMLElement): {
       return;
     }
 
-    // Show newest entries at the top
     const recent = [...all].reverse().slice(0, 80);
     logListEl.innerHTML = recent
       .map((entry) => {
@@ -178,10 +180,9 @@ export function bootstrapApp(rootEl: HTMLElement): {
   uiRef = ui;
 
   ui.mountHeader(headerEl);
-  ui.mountBannersAndInspector(overlayEl);
+  ui.mountBannersAndInspector(overlayEl, dockedInspectorEl);
   ui.mountBottomToolbar(toolbarEl);
 
-  // Wire Notebook Export & Clear buttons
   rootEl.querySelector('#btn-export-json')?.addEventListener('click', () => {
     downloadTextFile('chem-lab-notebook.json', notebook.toJSON(), 'application/json');
     ui.showNotice('Exported lab notebook as chem-lab-notebook.json', 'info');
@@ -200,7 +201,6 @@ export function bootstrapApp(rootEl: HTMLElement): {
     ui.showNotice('Cleared lab notebook and live telemetry charts.', 'info');
   });
 
-  // Initial graph render
   graphs.render();
 
   let lastTime = performance.now();

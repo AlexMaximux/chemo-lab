@@ -25,6 +25,7 @@ export class Simulator {
   public events: LabEvent[] = [];
 
   private ignited = false;
+  private hasThermalOrReaction = false;
   private elapsedSeconds = 0;
   private pendingHazards = new Set<string>();
 
@@ -49,6 +50,7 @@ export class Simulator {
     if (!Number.isFinite(joules) || joules === 0) {
       return;
     }
+    this.hasThermalOrReaction = true;
     const cp = Math.max(this.mixture.heatCapacity(), 50.0);
     this.mixture.tempK = Math.max(1.0, this.mixture.tempK + joules / cp);
 
@@ -59,6 +61,12 @@ export class Simulator {
     });
 
     this.checkBurstPressure();
+  }
+
+  public resetState(): void {
+    this.ignited = false;
+    this.hasThermalOrReaction = false;
+    this.pendingHazards.clear();
   }
 
   public step(dtSeconds: number): StepResult {
@@ -146,6 +154,7 @@ export class Simulator {
 
     if (reactionsFiredSet.size > 0) {
       this.ignited = false;
+      this.hasThermalOrReaction = true;
     }
 
     const pressureKPa = this.checkBurstPressure(hazardsSet);
@@ -261,7 +270,7 @@ export class Simulator {
 
   private checkBurstPressure(hazardsSet?: Set<string>): number {
     const pressureKPa = idealGasPressure(this.mixture, this.vesselL);
-    if (this.closed && pressureKPa > this.burstPressureKPa) {
+    if (this.closed && this.hasThermalOrReaction && pressureKPa > this.burstPressureKPa) {
       if (hazardsSet) {
         hazardsSet.add('burst');
       } else {

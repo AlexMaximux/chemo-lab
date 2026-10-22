@@ -8,7 +8,6 @@ import {
   createTool,
   createVessel,
   EquipmentType,
-  formatFormula,
   formatReactionEquation,
   getHeadspaceGasInfo,
   getPrecipitateInfo,
@@ -19,12 +18,19 @@ import {
   PourOptions,
   PourResult,
   PourUnit,
+  resetVesselState,
+  stepVesselPhysics,
   transferBetweenVessels,
 } from './equipment';
 
 export interface BenchCallbacks {
   onSelectVessel: (vessel: LabVessel | null) => void;
-  onLogEvent: (action: string, details: string, vessel?: LabVessel, extra?: { reaction?: string; hazards?: string[] }) => void;
+  onLogEvent: (
+    action: string,
+    details: string,
+    vessel?: LabVessel,
+    extra?: { reaction?: string; hazards?: string[] }
+  ) => void;
   onHazard: (hazards: string[], message: string, vessel: LabVessel) => void;
   onNotice: (message: string, level?: 'info' | 'warn' | 'danger') => void;
   onSimSample: (simTime: number, vessel: LabVessel | null) => void;
@@ -42,8 +48,8 @@ export class LabBench {
   public paused = false;
   public simElapsedSeconds = 0;
 
-  private width = 860;
-  private height = 520;
+  private width = 880;
+  private height = 460;
   private draggingItem: BenchItem | null = null;
   private dragOffsetX = 0;
   private dragOffsetY = 0;
@@ -71,18 +77,19 @@ export class LabBench {
     this.items = [];
     this.simElapsedSeconds = 0;
 
-    const beaker1 = createVessel('beaker', 180, 228, 'Beaker A (250mL)');
-    const flask1 = createVessel('flask', 370, 220, 'Flask B (250mL)');
-    const tube1 = createVessel('test_tube', 560, 224, 'Tube C (50mL)');
+    const beaker1 = createVessel('beaker', 100, 185, 'Beaker A (250mL)');
+    const flask1 = createVessel('flask', 265, 179, 'Flask B (250mL)');
+    const gasJar1 = createVessel('gas_jar', 435, 171, 'Gas Jar C (500mL)');
+    const tube1 = createVessel('test_tube', 595, 183, 'Tube D (50mL)');
 
-    const burner = createTool('burner', 384, 344);
-    burner.active = false; // Off initially until user toggles or heats
+    const scale = createTool('scale', 82, 312);
+    const burner = createTool('burner', 279, 300);
+    burner.active = false;
 
-    const scale = createTool('scale', 162, 356);
-    const phMeter = createTool('ph_meter', 675, 246);
-    const thermometer = createTool('thermometer', 758, 238);
+    const phMeter = createTool('ph_meter', 705, 200);
+    const thermometer = createTool('thermometer', 795, 195);
 
-    this.items.push(scale, burner, beaker1, flask1, tube1, phMeter, thermometer);
+    this.items.push(scale, burner, beaker1, flask1, gasJar1, tube1, phMeter, thermometer);
     this.selectedVesselId = beaker1.id;
     this.callbacks.onSelectVessel(beaker1);
   }
@@ -109,27 +116,57 @@ export class LabBench {
     this.callbacks.onSelectVessel(this.getSelectedVessel());
   }
 
-  public addEquipment(type: EquipmentType, clientX?: number, clientY?: number): BenchItem {
+  public addEquipment(type: EquipmentType, clientX?: number, clientY?: number): BenchItem | null {
+    if (type === 'stopper') {
+      // If dropped over a specific vessel, toggle that vessel; otherwise toggle selected vessel
+      let target = this.getSelectedVessel();
+      if (clientX !== undefined && clientY !== undefined) {
+        const { x, y } = this.toCanvasCoords(clientX, clientY);
+        const hit = this.hitTest(x, y);
+        if (hit && hit.kind === 'vessel') {
+          target = hit;
+        }
+      }
+      if (target) {
+        this.toggleVesselStopper(target);
+        this.callbacks.onNotice(
+          `${target.closed ? 'Stoppered (sealed)' : 'Unstoppered (open to air)'} ${target.label}.`,
+          'info'
+        );
+      }
+      return target;
+    }
+
     const rect = this.canvas.getBoundingClientRect();
-    let x = this.width * 0.45 + (Math.random() - 0.5) * 120;
-    let y = this.getBenchSurfaceY() - 140;
+    let x = this.width * 0.42 + (Math.random() - 0.5) * 120;
 
     if (clientX !== undefined && clientY !== undefined && rect.width > 0) {
-      x = Math.max(40, Math.min(this.width - 140, clientX - rect.left - 50));
-      y = Math.max(60, Math.min(this.getBenchSurfaceY() - 60, clientY - rect.top - 70));
+      x = Math.max(30, Math.min(this.width - 130, clientX - rect.left - 50));
     }
 
     if (isVesselType(type)) {
       const count = this.getVessels().filter((v) => v.vesselType === type).length + 1;
-      const prefix = type === 'beaker' ? 'Beaker' : type === 'flask' ? 'Flask' : 'Test Tube';
-      const cap = type === 'test_tube' ? '50mL' : '250mL';
-      const vessel = createVessel(type, x, this.getBenchSurfaceY() - 142, `${prefix} #${count} (${cap})`);
+      const prefix =
+        type === 'beaker'
+          ? 'Beaker'
+          : type === 'flask'
+            ? 'Flask'
+            : type === 'gas_jar'
+              ? 'Gas Jar'
+              : 'Test Tube';
+      const cap = type === 'test_tube' ? '50mL' : type === 'gas_jar' ? '500mL' : '250mL';
+      const vessel = createVessel(
+        type,
+        x,
+        this.getBenchSurfaceY() - 140,
+        `${prefix} #${count} (${cap})`
+      );
       this.items.push(vessel);
       this.selectVessel(vessel.id);
       this.callbacks.onLogEvent('equipment', `Placed ${vessel.label} on the bench`, vessel);
       return vessel;
     } else {
-      const tool = createTool(type, x, this.getBenchSurfaceY() - 115);
+      const tool = createTool(type, x, this.getBenchSurfaceY() - 112);
       this.items.push(tool);
       this.callbacks.onLogEvent('equipment', `Placed ${tool.label} on the bench`);
       return tool;
@@ -150,30 +187,22 @@ export class LabBench {
   }
 
   public rinseVessel(vessel: LabVessel): void {
-    vessel.mixture.moles = {};
-    vessel.mixture.volumeL = 0;
-    vessel.mixture.tempK = 298.15;
-    vessel.overflowWarning = false;
-    vessel.burst = false;
-    vessel.lastReactionsFired = [];
-    vessel.lastStepResult = {
-      reactionsFired: [],
-      heatJ: 0,
-      tempK: 298.15,
-      pressureKPa: 0,
-      hazards: [],
-    };
-    this.callbacks.onLogEvent('rinse', `Rinsed and emptied ${vessel.label}`, vessel);
+    resetVesselState(vessel);
+    this.callbacks.onLogEvent('rinse', `Rinsed and restored ${vessel.label}`, vessel);
     this.callbacks.onNotice(`Rinsed ${vessel.label} (25.0 °C, empty).`, 'info');
     this.callbacks.onSelectVessel(vessel);
   }
 
   public toggleVesselStopper(vessel: LabVessel, closed?: boolean): void {
+    if (vessel.burst) {
+      this.callbacks.onNotice(`${vessel.label} is shattered and cannot be stoppered.`, 'warn');
+      return;
+    }
     vessel.closed = closed ?? !vessel.closed;
     vessel.simulator.closed = vessel.closed;
     this.callbacks.onLogEvent(
       'stopper',
-      `${vessel.closed ? 'Stoppered (closed)' : 'Unstoppered (open)'} ${vessel.label}`,
+      `${vessel.closed ? 'Stoppered (sealed)' : 'Unstoppered (open)'} ${vessel.label}`,
       vessel
     );
     this.callbacks.onSelectVessel(vessel);
@@ -223,7 +252,6 @@ export class LabBench {
       this.callbacks.onLogEvent('pour', res.message, vessel);
     }
 
-    // Step simulation briefly to trigger immediate fast reactions
     this.stepVesselSimulation(vessel, 0.05);
     this.callbacks.onSelectVessel(vessel);
     return res;
@@ -235,8 +263,12 @@ export class LabBench {
       this.callbacks.onNotice('No vessel selected to ignite.', 'warn');
       return;
     }
+    if (target.burst) {
+      this.callbacks.onNotice(`${target.label} is shattered. Reset bench first.`, 'warn');
+      return;
+    }
     target.simulator.ignite();
-    this.effects.triggerIgnitionFlare(target, false);
+    this.effects.triggerIgnitionFlare(target, true);
     this.callbacks.onLogEvent('ignite', `Applied ignition spark to ${target.label}`, target);
     this.stepVesselSimulation(target, 0.25);
     this.callbacks.onSelectVessel(target);
@@ -246,6 +278,10 @@ export class LabBench {
     const target = vessel ?? this.getSelectedVessel();
     if (!target) {
       this.callbacks.onNotice('No vessel selected to heat.', 'warn');
+      return;
+    }
+    if (target.burst) {
+      this.callbacks.onNotice(`${target.label} is shattered. Reset bench first.`, 'warn');
       return;
     }
     target.simulator.heat(joules);
@@ -283,6 +319,57 @@ export class LabBench {
     this.selectVessel(target.id);
   }
 
+  public runScenario(preset: string): void {
+    const vessels = this.getVessels();
+    if (vessels.length === 0) return;
+
+    if (preset === 'make_water') {
+      // Prefer the thick-walled Gas Jar if present on the bench, otherwise selected vessel
+      const jar = vessels.find((v) => v.vesselType === 'gas_jar') ?? this.getSelectedVessel() ?? vessels[0];
+      this.selectVessel(jar.id);
+      resetVesselState(jar);
+      this.toggleVesselStopper(jar, true);
+      this.pourIntoVessel(jar, 'H2', 0.02, 'mol');
+      this.pourIntoVessel(jar, 'O2', 0.01, 'mol');
+      this.callbacks.onNotice(
+        `Loaded 0.02 mol H₂ + 0.01 mol O₂ in stoppered ${jar.label} (P = ${jar.lastStepResult.pressureKPa.toFixed(1)} kPa). Press "⚡ Spark / Ignite" to synthesize H₂O!`,
+        'info'
+      );
+      this.callbacks.onSelectVessel(jar);
+    } else if (preset === 'neutralize') {
+      const beaker = vessels.find((v) => v.vesselType === 'beaker') ?? this.getSelectedVessel() ?? vessels[0];
+      this.selectVessel(beaker.id);
+      resetVesselState(beaker);
+      this.pourIntoVessel(beaker, 'HCl', 50, 'mL', { molarity: 1.0 });
+      this.pourIntoVessel(beaker, 'NaOH', 50, 'mL', { molarity: 1.0 });
+      this.callbacks.onNotice(
+        'Mixed 50 mL 1.0M HCl + 50 mL 1.0M NaOH → Neutralized to NaCl + H₂O (pH 7.00)!',
+        'info'
+      );
+      this.callbacks.onSelectVessel(beaker);
+    } else if (preset === 'heat_gas') {
+      const flask = vessels.find((v) => v.vesselType === 'flask') ?? this.getSelectedVessel() ?? vessels[0];
+      this.selectVessel(flask.id);
+      resetVesselState(flask);
+      this.toggleVesselStopper(flask, true);
+      this.pourIntoVessel(flask, 'N2', 0.35, 'mol');
+      this.heatVessel(65000, flask);
+      this.callbacks.onSelectVessel(flask);
+    } else if (preset === 'hazard_na') {
+      const target = this.getSelectedVessel() ?? vessels[0];
+      resetVesselState(target);
+      this.pourIntoVessel(target, 'H2O', 80, 'mL');
+      this.pourIntoVessel(target, 'Na', 2.0, 'g');
+      this.callbacks.onSelectVessel(target);
+    } else if (preset === 'hazard_chloramine') {
+      const target = this.getSelectedVessel() ?? vessels[0];
+      resetVesselState(target);
+      this.pourIntoVessel(target, 'NaOCl', 40, 'mL', { molarity: 1.0 });
+      this.pourIntoVessel(target, 'NH3(aq)', 40, 'mL', { molarity: 1.0 });
+      this.callbacks.onSelectVessel(target);
+    }
+  }
+
   public tick(dtRealSeconds: number): void {
     this.animTimeSec += dtRealSeconds;
 
@@ -290,7 +377,7 @@ export class LabBench {
       const simDt = Math.min(0.2, dtRealSeconds) * this.speedMultiplier;
       this.simElapsedSeconds += simDt;
 
-      // Active burners heat vessels directly above or near them
+      // Active burners heat vessels positioned directly above or near them
       const burners = this.getTools().filter((t) => t.toolType === 'burner' && t.active);
       const vessels = this.getVessels();
 
@@ -298,16 +385,19 @@ export class LabBench {
         const bCx = burner.x + burner.width * 0.5;
         const bTop = burner.y;
         for (const v of vessels) {
+          if (v.burst) continue;
           const vCx = v.x + v.width * 0.5;
           const vBottom = v.y + v.height;
-          if (Math.abs(vCx - bCx) < 88 && Math.abs(vBottom - bTop) < 120) {
+          if (Math.abs(vCx - bCx) < 88 && Math.abs(vBottom - bTop) < 125) {
             v.simulator.heat(burner.powerWatts * simDt);
           }
         }
       }
 
       for (const v of vessels) {
-        this.stepVesselSimulation(v, simDt);
+        if (!v.burst) {
+          this.stepVesselSimulation(v, simDt);
+        }
       }
 
       this.callbacks.onSimSample(this.simElapsedSeconds, this.getSelectedVessel());
@@ -318,24 +408,14 @@ export class LabBench {
   }
 
   private stepVesselSimulation(vessel: LabVessel, simDt: number): void {
-    vessel.simulator.vesselL = vessel.capacityL;
-    vessel.simulator.closed = vessel.closed;
+    if (vessel.burst) return;
 
     const beforeGasMoles = getHeadspaceGasInfo(vessel.mixture).moles;
     const beforePrecipMass = getPrecipitateInfo(vessel.mixture).massG;
 
-    const result = vessel.simulator.step(simDt);
-    vessel.lastStepResult = result;
-
-    // Clamp liquid volume if reaction produced liquid exceeding capacity
-    if (vessel.mixture.volumeL > vessel.capacityL) {
-      vessel.mixture.volumeL = vessel.capacityL;
-      vessel.overflowWarning = true;
-    }
+    const result = stepVesselPhysics(vessel, simDt);
 
     if (result.reactionsFired.length > 0) {
-      vessel.lastReactionsFired = result.reactionsFired;
-
       for (const rxnId of result.reactionsFired) {
         const rxn = REACTIONS.find((r) => r.id === rxnId);
         const eqStr = formatReactionEquation(rxn ?? rxnId);
@@ -347,7 +427,6 @@ export class LabBench {
         );
 
         if (rxn) {
-          // Check for gas evolution
           const producesGas = Object.keys(rxn.products).some(
             (pId) => SPECIES[pId]?.phase === 'g'
           );
@@ -355,7 +434,6 @@ export class LabBench {
             this.effects.triggerGasEvolution(vessel, 22);
           }
 
-          // Check for precipitate formation
           const precipSpId = Object.keys(rxn.products).find(
             (pId) => SPECIES[pId]?.phase === 's'
           );
@@ -364,12 +442,10 @@ export class LabBench {
             this.effects.triggerPrecipitate(vessel, pColor, 26);
           }
 
-          // Check for water / steam condensation or high exothermic heat
           if (rxn.products.H2O || rxn.products['H2O(g)'] || rxn.dH < -150) {
-            this.effects.triggerCondensationAndVapor(vessel, 16);
+            this.effects.triggerCondensationAndVapor(vessel, 18);
           }
 
-          // Check for combustion / ignition flame
           if (rxn.conditions.ignition || rxn.dH < -250) {
             this.effects.triggerIgnitionFlare(vessel, true);
           }
@@ -389,25 +465,29 @@ export class LabBench {
     }
 
     if (result.hazards.length > 0) {
-      const isExplosiveOrBurst =
-        result.hazards.includes('explosive') || result.hazards.includes('burst');
-      if (isExplosiveOrBurst) {
-        if (result.hazards.includes('burst')) {
-          vessel.burst = true;
-          vessel.closed = false;
-          vessel.simulator.closed = false;
-        }
+      const isBurst = result.hazards.includes('burst');
+      const isExplosive = result.hazards.includes('explosive') || isBurst;
+      if (isExplosive) {
         this.effects.triggerExplosion(vessel);
       }
 
-      const eqSummary =
-        result.reactionsFired.length > 0
+      if (isBurst) {
+        this.callbacks.onLogEvent(
+          'hazard',
+          `Vessel ruptured! Internal gas pressure (${result.pressureKPa.toFixed(0)} kPa) shattered ${vessel.label} and spilled contents.`,
+          vessel,
+          { hazards: result.hazards }
+        );
+      }
+
+      const eqSummary = isBurst
+        ? `Overpressure (${result.pressureKPa.toFixed(0)} kPa) shattered ${vessel.label}! Contents spilled on bench.`
+        : result.reactionsFired.length > 0
           ? result.reactionsFired.map((id) => formatReactionEquation(id)).join(' ; ')
-          : result.hazards.includes('burst')
-            ? `Internal gas pressure (${result.pressureKPa.toFixed(0)} kPa) ruptured ${vessel.label}!`
-            : `Hazardous condition in ${vessel.label}`;
+          : `Hazardous condition in ${vessel.label}`;
 
       this.callbacks.onHazard(result.hazards, eqSummary, vessel);
+      this.callbacks.onSelectVessel(vessel);
     }
   }
 
@@ -417,23 +497,22 @@ export class LabBench {
     const rect = parent.getBoundingClientRect();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.width = Math.max(520, Math.floor(rect.width));
-    this.height = Math.max(340, Math.floor(rect.height));
+    this.height = Math.max(300, Math.floor(rect.height));
 
     this.canvas.width = Math.floor(this.width * dpr);
     this.canvas.height = Math.floor(this.height * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Keep equipment resting nicely near bench surface if viewport resized
     const surfaceY = this.getBenchSurfaceY();
     for (const item of this.items) {
-      item.x = Math.max(16, Math.min(this.width - item.width - 16, item.x));
-      item.y = Math.max(32, Math.min(surfaceY - item.height + 24, item.y));
+      item.x = Math.max(12, Math.min(this.width - item.width - 12, item.x));
+      item.y = Math.max(24, Math.min(surfaceY - item.height + 24, item.y));
     }
     this.render();
   }
 
   public getBenchSurfaceY(): number {
-    return Math.floor(this.height * 0.74);
+    return Math.floor(this.height * 0.73);
   }
 
   private bindEvents(): void {
@@ -477,11 +556,10 @@ export class LabBench {
         Math.min(this.width - this.draggingItem.width - 12, x - this.dragOffsetX)
       );
       this.draggingItem.y = Math.max(
-        20,
+        18,
         Math.min(surfaceY - this.draggingItem.height + 28, y - this.dragOffsetY)
       );
 
-      // Highlight target vessel if dragging a vessel or pipette over another vessel
       if (this.draggingItem.kind === 'vessel') {
         const target = this.findOverlappingVessel(this.draggingItem);
         this.hoveredDropVesselId = target ? target.id : null;
@@ -499,7 +577,7 @@ export class LabBench {
       try {
         this.canvas.releasePointerCapture(e.pointerId);
       } catch {
-        // Ignore if not captured
+        // Ignore
       }
 
       if (!this.pointerDownMoved && item.kind === 'tool' && item.toolType === 'burner') {
@@ -515,9 +593,8 @@ export class LabBench {
       } else if (this.pointerDownMoved && item.kind === 'vessel') {
         const target = this.findOverlappingVessel(item);
         if (target) {
-          // Pour 25 mL from dragged vessel into target vessel, then snap dragged vessel alongside it
           this.transferVessels(item, target, 25);
-          item.x = Math.max(20, target.x - item.width - 18);
+          item.x = Math.max(20, target.x - item.width - 16);
           item.y = this.getBenchSurfaceY() - item.height + 8;
         }
       }
@@ -527,7 +604,6 @@ export class LabBench {
     this.canvas.addEventListener('pointerup', finishPointer);
     this.canvas.addEventListener('pointercancel', finishPointer);
 
-    // HTML5 Drag & Drop from bottom toolbar (equipment or chemical card)
     this.canvas.addEventListener('dragover', (e) => {
       e.preventDefault();
       if (e.dataTransfer) {
@@ -560,7 +636,7 @@ export class LabBench {
         if (targetVessel) {
           const sp = SPECIES[speciesId];
           const unit: PourUnit = sp?.phase === 's' ? 'g' : sp?.phase === 'g' ? 'mol' : 'mL';
-          const defaultAmt = sp?.phase === 's' ? 1 : sp?.phase === 'g' ? 0.5 : 10;
+          const defaultAmt = sp?.phase === 's' ? 1 : sp?.phase === 'g' ? 0.02 : 10;
           this.pourIntoVessel(targetVessel, speciesId, defaultAmt, unit);
         }
       }
@@ -576,7 +652,6 @@ export class LabBench {
   }
 
   private hitTest(x: number, y: number): BenchItem | null {
-    // Check top-most items first
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
       if (x >= it.x && x <= it.x + it.width && y >= it.y && y <= it.y + it.height) {
@@ -609,7 +684,6 @@ export class LabBench {
     ctx.save();
     ctx.clearRect(0, 0, w, h);
 
-    // Apply explosion shake transform if active
     if (this.effects.shakeIntensity > 0.1) {
       ctx.translate(this.effects.shakeOffsetX, this.effects.shakeOffsetY);
     }
@@ -622,7 +696,6 @@ export class LabBench {
     ctx.fillStyle = wallGrad;
     ctx.fillRect(0, 0, w, surfaceY);
 
-    // Subtle technical calibration grid
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.045)';
     ctx.lineWidth = 1;
     const gridStep = 40;
@@ -639,7 +712,6 @@ export class LabBench {
       ctx.stroke();
     }
 
-    // Overhead laboratory spotlight cone
     const spotGrad = ctx.createRadialGradient(w * 0.48, 20, 10, w * 0.48, surfaceY * 0.65, w * 0.6);
     spotGrad.addColorStop(0, 'rgba(34, 211, 238, 0.065)');
     spotGrad.addColorStop(0.6, 'rgba(15, 23, 42, 0.02)');
@@ -647,8 +719,7 @@ export class LabBench {
     ctx.fillStyle = spotGrad;
     ctx.fillRect(0, 0, w, surfaceY);
 
-    // 2. Brushed Steel Backsplash Trim & Wooden Lab Bench Surface
-    // Backsplash ledge
+    // 2. Brushed Steel Backsplash & Wooden Lab Bench Surface
     const railGrad = ctx.createLinearGradient(0, surfaceY - 14, 0, surfaceY);
     railGrad.addColorStop(0, '#1e293b');
     railGrad.addColorStop(0.5, '#334155');
@@ -662,19 +733,17 @@ export class LabBench {
     ctx.lineTo(w, surfaceY - 12);
     ctx.stroke();
 
-    // Warm dark walnut / teak butcher-block bench surface
     const woodGrad = ctx.createLinearGradient(0, surfaceY, 0, h);
     woodGrad.addColorStop(0, '#3b2618');
     woodGrad.addColorStop(0.18, '#4a3020');
     woodGrad.addColorStop(0.55, '#362215');
     woodGrad.addColorStop(0.66, '#24150c');
-    woodGrad.addColorStop(0.7, '#1b2432'); // Under-bench steel cabinet fascia
+    woodGrad.addColorStop(0.7, '#1b2432');
     woodGrad.addColorStop(1, '#0b1019');
     ctx.fillStyle = woodGrad;
     ctx.fillRect(0, surfaceY, w, h - surfaceY);
 
-    // Butcher-block horizontal plank seams & subtle grain
-    const benchFrontEdgeY = surfaceY + Math.min(74, (h - surfaceY) * 0.64);
+    const benchFrontEdgeY = surfaceY + Math.min(72, (h - surfaceY) * 0.64);
     ctx.strokeStyle = 'rgba(15, 8, 4, 0.35)';
     ctx.lineWidth = 1;
     const plankCount = 4;
@@ -686,7 +755,6 @@ export class LabBench {
       ctx.stroke();
     }
 
-    // Specular varnish sheen across wooden benchtop
     const sheenGrad = ctx.createLinearGradient(0, surfaceY, w, benchFrontEdgeY);
     sheenGrad.addColorStop(0, 'rgba(255, 255, 255, 0.02)');
     sheenGrad.addColorStop(0.45, 'rgba(255, 248, 235, 0.065)');
@@ -694,7 +762,6 @@ export class LabBench {
     ctx.fillStyle = sheenGrad;
     ctx.fillRect(0, surfaceY, w, benchFrontEdgeY - surfaceY);
 
-    // Brushed steel front bullnose edge strip
     const edgeGrad = ctx.createLinearGradient(0, benchFrontEdgeY - 4, 0, benchFrontEdgeY + 6);
     edgeGrad.addColorStop(0, '#64748b');
     edgeGrad.addColorStop(0.4, '#94a3b8');
@@ -702,7 +769,7 @@ export class LabBench {
     ctx.fillStyle = edgeGrad;
     ctx.fillRect(0, benchFrontEdgeY - 3, w, 8);
 
-    // 3. Render Tools first (scales, burners), then Vessels, then Probe Tools
+    // 3. Render Tools and Vessels
     const backgroundTools = this.getTools().filter(
       (t) => t.toolType === 'scale' || t.toolType === 'burner'
     );
@@ -722,13 +789,71 @@ export class LabBench {
       this.renderTool(ctx, tool);
     }
 
-    // 4. Render overlay particle effects (vapors, flares, shockwaves, explosion flash)
     this.effects.renderOverlayEffects(ctx, w, h);
 
     ctx.restore();
   }
 
+  private renderShatteredVessel(ctx: CanvasRenderingContext2D, vessel: LabVessel): void {
+    const { x, y, width: w, height: h } = vessel;
+    const cx = x + w * 0.5;
+    const bottomY = y + h;
+
+    ctx.save();
+
+    // Spilled liquid puddle on the benchtop
+    ctx.fillStyle = vessel.spilledColor || 'rgba(125, 211, 252, 0.42)';
+    ctx.beginPath();
+    ctx.ellipse(cx, bottomY + 3, w * 0.72, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Jagged shattered glass base stump
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.16)';
+    ctx.strokeStyle = 'rgba(248, 113, 113, 0.78)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x + 14, bottomY);
+    ctx.lineTo(x + 14, bottomY - 22);
+    ctx.lineTo(x + 28, bottomY - 10);
+    ctx.lineTo(x + 42, bottomY - 28);
+    ctx.lineTo(x + 58, bottomY - 14);
+    ctx.lineTo(x + 74, bottomY - 26);
+    ctx.lineTo(x + w - 16, bottomY - 16);
+    ctx.lineTo(x + w - 14, bottomY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Scattered glass shards around base
+    const shardOffsets = [
+      [-38, 2, -12, -5, -24, 7],
+      [-16, 6, 4, 2, -6, 10],
+      [18, 4, 36, -2, 28, 9],
+      [34, 6, 52, 1, 44, 11],
+    ];
+    ctx.fillStyle = 'rgba(186, 230, 253, 0.38)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 1.1;
+    for (const [x1, y1, x2, y2, x3, y3] of shardOffsets) {
+      ctx.beginPath();
+      ctx.moveTo(cx + x1, bottomY + y1);
+      ctx.lineTo(cx + x2, bottomY + y2);
+      ctx.lineTo(cx + x3, bottomY + y3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    this.renderVesselBadge(ctx, vessel, vessel.id === this.selectedVesselId);
+    ctx.restore();
+  }
+
   private renderVessel(ctx: CanvasRenderingContext2D, vessel: LabVessel): void {
+    if (vessel.burst) {
+      this.renderShatteredVessel(ctx, vessel);
+      return;
+    }
+
     const { x, y, width: w, height: h, vesselType } = vessel;
     const isSelected = vessel.id === this.selectedVesselId;
     const isDropTarget = vessel.id === this.hoveredDropVesselId;
@@ -741,7 +866,6 @@ export class LabBench {
     ctx.ellipse(x + w * 0.5, y + h + 3, w * 0.44, 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Selection or drop-target ring around base
     if (isSelected || isDropTarget) {
       ctx.strokeStyle = isDropTarget ? '#34d399' : '#22d3ee';
       ctx.lineWidth = isDropTarget ? 2.5 : 1.8;
@@ -752,14 +876,17 @@ export class LabBench {
       ctx.setLineDash([]);
     }
 
-    const fillRatio = Math.max(0, Math.min(1, vessel.mixture.volumeL / vessel.capacityL));
+    const rawFillRatio = Math.max(0, Math.min(1, vessel.mixture.volumeL / vessel.capacityL));
+    // Ensure even small synthesized liquid quantities (like 0.02 mol = 0.36 mL H2O) render a visible liquid layer
+    const fillRatio =
+      vessel.mixture.volumeL > 1e-5 ? Math.max(0.065, rawFillRatio) : 0;
+
     const innerTopY = y + 18;
     const innerBottomY = vesselType === 'test_tube' ? y + h - 14 : y + h - 8;
     const usableHeight = innerBottomY - innerTopY;
     const liquidHeight = fillRatio * usableHeight;
     const liquidTopY = innerBottomY - liquidHeight;
 
-    // Build interior clip path for glassware
     ctx.save();
     this.traceVesselPath(ctx, vessel, true);
     ctx.clip();
@@ -769,6 +896,18 @@ export class LabBench {
     if (gasInfo.moles > 0) {
       ctx.fillStyle = gasInfo.color;
       ctx.fillRect(x, innerTopY, w, usableHeight);
+    }
+
+    // Wall condensation droplets when water was synthesized or mixture is warm
+    if ((vessel.lastReactionsFired.includes('h2_o2_water') || vessel.mixture.tempK > 325) && vessel.mixture.moles.H2O) {
+      ctx.fillStyle = 'rgba(186, 230, 253, 0.55)';
+      for (let d = 0; d < 14; d++) {
+        const dx = x + 16 + ((d * 23) % Math.max(20, w - 32));
+        const dy = innerTopY + 14 + ((d * 19) % Math.max(20, usableHeight * 0.65));
+        ctx.beginPath();
+        ctx.arc(dx, dy, 1.8 + (d % 2) * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // Liquid body with animated wave meniscus
@@ -791,7 +930,6 @@ export class LabBench {
       ctx.closePath();
       ctx.fill();
 
-      // Bright meniscus surface highlight
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -799,7 +937,7 @@ export class LabBench {
       ctx.stroke();
     }
 
-    // Solid / Precipitate sediment bed at the bottom of the vessel
+    // Solid / Precipitate sediment bed
     const precip = getPrecipitateInfo(vessel.mixture);
     if (precip.massG > 0.001) {
       const sedHeight = Math.min(usableHeight * 0.28, 5 + Math.log10(1 + precip.massG * 6) * 9);
@@ -817,16 +955,13 @@ export class LabBench {
       ctx.fill();
     }
 
-    // Internal bubbles, falling precipitate, and pour stream
     this.effects.renderVesselInternalEffects(ctx, vessel, liquidTopY, innerBottomY);
-    ctx.restore(); // End vessel interior clip
+    ctx.restore();
 
-    // Test tube rack if test_tube
     if (vesselType === 'test_tube') {
       this.renderTestTubeRack(ctx, vessel);
     }
 
-    // Glassware outer walls & rim highlights
     this.traceVesselPath(ctx, vessel, false);
     const glassFill = ctx.createLinearGradient(x, y, x + w, y);
     glassFill.addColorStop(0, 'rgba(255, 255, 255, 0.14)');
@@ -837,11 +972,11 @@ export class LabBench {
     ctx.fill();
 
     ctx.strokeStyle = isSelected
-      ? 'rgba(34, 211, 238, 0.85)'
-      : vessel.burst
-        ? 'rgba(248, 113, 113, 0.85)'
+      ? 'rgba(34, 211, 238, 0.88)'
+      : vesselType === 'gas_jar'
+        ? 'rgba(148, 163, 184, 0.78)'
         : 'rgba(226, 232, 240, 0.58)';
-    ctx.lineWidth = isSelected ? 2.2 : 1.6;
+    ctx.lineWidth = vesselType === 'gas_jar' ? 2.6 : isSelected ? 2.2 : 1.6;
     ctx.stroke();
 
     // Specular vertical glass reflection streak
@@ -849,7 +984,7 @@ export class LabBench {
     ctx.lineWidth = 2.4;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    if (vesselType === 'beaker') {
+    if (vesselType === 'beaker' || vesselType === 'gas_jar') {
       ctx.moveTo(x + 14, y + 24);
       ctx.lineTo(x + 14, y + h - 16);
     } else if (vesselType === 'flask') {
@@ -861,23 +996,27 @@ export class LabBench {
     }
     ctx.stroke();
 
-    // Volumetric graduation ticks
     this.renderGraduations(ctx, vessel, innerTopY, innerBottomY);
 
-    // Rubber Stopper if vessel is closed
     if (vessel.closed) {
-      const neckW = vesselType === 'flask' ? w * 0.34 : vesselType === 'test_tube' ? w * 0.46 : w * 0.82;
+      const neckW =
+        vesselType === 'flask'
+          ? w * 0.34
+          : vesselType === 'test_tube'
+            ? w * 0.46
+            : vesselType === 'gas_jar'
+              ? w * 0.76
+              : w * 0.82;
       const sx = x + (w - neckW) * 0.5;
       ctx.fillStyle = '#334155';
       ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.3;
       ctx.beginPath();
       ctx.roundRect(sx, y + 4, neckW, 13, 3);
       ctx.fill();
       ctx.stroke();
     }
 
-    // Floating Telemetry Label Pill below vessel
     this.renderVesselBadge(ctx, vessel, isSelected);
 
     ctx.restore();
@@ -900,13 +1039,30 @@ export class LabBench {
       const right = x + w - 6;
       const top = y + 12;
       const bottom = y + h - 6;
-      ctx.moveTo(left - 4, top); // Pouring lip flare
+      ctx.moveTo(left - 4, top);
       ctx.lineTo(left, top + 6);
       ctx.lineTo(left, bottom - 10);
       ctx.quadraticCurveTo(left, bottom, left + 10, bottom);
       ctx.lineTo(right - 10, bottom);
       ctx.quadraticCurveTo(right, bottom, right, bottom - 10);
       ctx.lineTo(right, top);
+      ctx.closePath();
+    } else if (vessel.vesselType === 'gas_jar') {
+      const left = x + 8;
+      const right = x + w - 8;
+      const top = y + 12;
+      const bottom = y + h - 6;
+      // Thick-walled gas jar with ground-glass top flange
+      ctx.moveTo(left - 5, top);
+      ctx.lineTo(left - 5, top + 5);
+      ctx.lineTo(left, top + 7);
+      ctx.lineTo(left, bottom - 8);
+      ctx.quadraticCurveTo(left, bottom, left + 8, bottom);
+      ctx.lineTo(right - 8, bottom);
+      ctx.quadraticCurveTo(right, bottom, right, bottom - 8);
+      ctx.lineTo(right, top + 7);
+      ctx.lineTo(right + 5, top + 5);
+      ctx.lineTo(right + 5, top);
       ctx.closePath();
     } else if (vessel.vesselType === 'flask') {
       const cx = x + w * 0.5;
@@ -928,7 +1084,6 @@ export class LabBench {
       ctx.lineTo(cx + neckHalf + 3, top);
       ctx.closePath();
     } else {
-      // test_tube
       const cx = x + w * 0.5;
       const tubeHalf = w * 0.23;
       const top = y + 10;
@@ -950,14 +1105,12 @@ export class LabBench {
     ctx.fillStyle = 'rgba(30, 41, 59, 0.78)';
     ctx.lineWidth = 1.5;
 
-    // Base & upper support bar
     ctx.beginPath();
     ctx.roundRect(x + 4, y + h - 10, w - 8, 8, 3);
     ctx.roundRect(x + 6, y + h * 0.46, w - 12, 6, 2);
     ctx.fill();
     ctx.stroke();
 
-    // Side pillars
     ctx.beginPath();
     ctx.moveTo(x + 11, y + h * 0.46 + 6);
     ctx.lineTo(x + 11, y + h - 10);
@@ -979,7 +1132,12 @@ export class LabBench {
     ctx.font = '600 9px "JetBrains Mono", ui-monospace, monospace';
     ctx.lineWidth = 1;
 
-    const marks = vessel.vesselType === 'test_tube' ? [10, 20, 30, 40] : [50, 100, 150, 200];
+    const marks =
+      vessel.vesselType === 'test_tube'
+        ? [10, 20, 30, 40]
+        : vessel.vesselType === 'gas_jar'
+          ? [100, 200, 300, 400]
+          : [50, 100, 150, 200];
     const maxML = vessel.capacityL * 1000;
     const rightX =
       vessel.vesselType === 'test_tube'
@@ -1006,31 +1164,46 @@ export class LabBench {
     isSelected: boolean
   ): void {
     const cx = vessel.x + vessel.width * 0.5;
-    const badgeY = vessel.y + vessel.height + 12;
-    const tempC = (vessel.mixture.tempK - 273.15).toFixed(1);
-    const volML = (vessel.mixture.volumeL * 1000).toFixed(0);
-    const hasContents = Object.keys(vessel.mixture.moles).length > 0;
-    const phVal = hasContents ? pH(vessel.mixture).toFixed(1) : '7.0';
+    const badgeY = vessel.y + vessel.height + 10;
 
     ctx.save();
     const badgeW = 128;
     const badgeH = 34;
-    ctx.fillStyle = isSelected ? 'rgba(15, 23, 42, 0.92)' : 'rgba(15, 23, 42, 0.78)';
-    ctx.strokeStyle = isSelected ? 'rgba(34, 211, 238, 0.65)' : 'rgba(255, 255, 255, 0.12)';
+    ctx.fillStyle = vessel.burst
+      ? 'rgba(127, 29, 29, 0.92)'
+      : isSelected
+        ? 'rgba(15, 23, 42, 0.92)'
+        : 'rgba(15, 23, 42, 0.78)';
+    ctx.strokeStyle = vessel.burst
+      ? 'rgba(248, 113, 113, 0.85)'
+      : isSelected
+        ? 'rgba(34, 211, 238, 0.65)'
+        : 'rgba(255, 255, 255, 0.12)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(cx - badgeW * 0.5, badgeY, badgeW, badgeH, 6);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = isSelected ? '#22d3ee' : '#e2e8f0';
-    ctx.font = '600 10.5px Inter, system-ui, sans-serif';
+    ctx.fillStyle = vessel.burst ? '#fecdd3' : isSelected ? '#22d3ee' : '#e2e8f0';
+    ctx.font = '600 10px Inter, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(vessel.label, cx, badgeY + 13);
 
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '500 9.5px "JetBrains Mono", ui-monospace, monospace';
-    ctx.fillText(`${volML}mL · ${tempC}°C · pH ${phVal}`, cx, badgeY + 27);
+    ctx.fillStyle = vessel.burst ? '#fda4af' : '#94a3b8';
+    ctx.font = '500 9px "JetBrains Mono", ui-monospace, monospace';
+    if (vessel.burst) {
+      ctx.fillText('SHATTERED (RESET)', cx, badgeY + 26);
+    } else {
+      const tempC = (vessel.mixture.tempK - 273.15).toFixed(1);
+      const volML =
+        vessel.mixture.volumeL > 0 && vessel.mixture.volumeL < 0.001
+          ? (vessel.mixture.volumeL * 1000).toFixed(2)
+          : (vessel.mixture.volumeL * 1000).toFixed(0);
+      const hasContents = Object.keys(vessel.mixture.moles).length > 0;
+      const phVal = hasContents ? pH(vessel.mixture).toFixed(1) : '7.0';
+      ctx.fillText(`${volML}mL · ${tempC}°C · pH ${phVal}`, cx, badgeY + 26);
+    }
     ctx.restore();
   }
 
@@ -1043,12 +1216,10 @@ export class LabBench {
       const bottomY = y + h;
       const nozzleTopY = y + 36;
 
-      // Render flame if active
       if (tool.active) {
         this.effects.renderBurnerFlame(ctx, cx, nozzleTopY, this.animTimeSec);
       }
 
-      // Base
       const baseGrad = ctx.createLinearGradient(x + 12, bottomY - 14, x + w - 12, bottomY);
       baseGrad.addColorStop(0, '#334155');
       baseGrad.addColorStop(0.5, '#64748b');
@@ -1058,7 +1229,6 @@ export class LabBench {
       ctx.roundRect(x + 14, bottomY - 12, w - 28, 12, 4);
       ctx.fill();
 
-      // Chimney barrel
       ctx.fillStyle = '#475569';
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = 1;
@@ -1067,17 +1237,14 @@ export class LabBench {
       ctx.fill();
       ctx.stroke();
 
-      // Brass air collar
       ctx.fillStyle = tool.active ? '#f59e0b' : '#b45309';
       ctx.fillRect(cx - 9, bottomY - 24, 18, 8);
 
-      // Status pill
       ctx.fillStyle = tool.active ? '#fb923c' : '#94a3b8';
       ctx.font = '600 9.5px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
       ctx.fillText(tool.active ? 'BURNER ON' : 'BURNER OFF', cx, bottomY + 13);
     } else if (toolType === 'scale') {
-      // Find any vessel sitting near/on top of the scale
       let weighedMassG = 0;
       const sCx = x + w * 0.5;
       for (const v of this.getVessels()) {
@@ -1087,7 +1254,6 @@ export class LabBench {
         }
       }
 
-      // Metallic body
       ctx.fillStyle = '#1e293b';
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
       ctx.lineWidth = 1.5;
@@ -1096,13 +1262,11 @@ export class LabBench {
       ctx.fill();
       ctx.stroke();
 
-      // Stainless weighing pan
       ctx.fillStyle = '#94a3b8';
       ctx.beginPath();
       ctx.roundRect(x + 12, y + 3, w - 24, 7, 3);
       ctx.fill();
 
-      // Backlit LCD screen
       ctx.fillStyle = '#062c30';
       ctx.strokeStyle = '#0891b2';
       ctx.beginPath();
@@ -1119,7 +1283,6 @@ export class LabBench {
       const tempK = target ? target.mixture.tempK : 298.15;
       const tempC = tempK - 273.15;
 
-      // Digital probe head
       ctx.fillStyle = '#0f172a';
       ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
       ctx.lineWidth = 1.4;
@@ -1128,7 +1291,6 @@ export class LabBench {
       ctx.fill();
       ctx.stroke();
 
-      // Probe stem
       ctx.strokeStyle = '#cbd5e1';
       ctx.lineWidth = 3.5;
       ctx.beginPath();
@@ -1162,7 +1324,6 @@ export class LabBench {
       ctx.fill();
       ctx.stroke();
 
-      // Electrode shaft
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = 4;
       ctx.beginPath();
@@ -1185,13 +1346,11 @@ export class LabBench {
       ctx.fillText(val.toFixed(2), x + w * 0.5, y + 34);
     } else if (toolType === 'pipette') {
       const cx = x + w * 0.5;
-      // Rubber bulb
       ctx.fillStyle = '#0284c7';
       ctx.beginPath();
       ctx.roundRect(cx - 9, y, 18, 26, 8);
       ctx.fill();
 
-      // Glass stem
       ctx.strokeStyle = 'rgba(226, 232, 240, 0.8)';
       ctx.fillStyle = 'rgba(186, 230, 253, 0.25)';
       ctx.lineWidth = 1.5;

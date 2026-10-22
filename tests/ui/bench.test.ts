@@ -9,8 +9,16 @@ import {
   formatReactionEquation,
   getSpeciesCategory,
   getPrecipitateInfo,
+  EQUIPMENT_CATALOG,
+  runMakeWaterScenario,
+  runClosedGasBurstScenario,
+  runNeutralizeScenario,
+  runSodiumWaterHazardScenario,
+  runChloramineHazardScenario,
+  stepVesselPhysics,
 } from '../../src/ui/equipment';
 import { SPECIES } from '../../src/engine/data/species';
+import { pH } from '../../src/engine/solution';
 
 describe('UI Equipment & Bench Logic (pour math, overflow clamp, transfers)', () => {
   it('calculates moles and volume accurately for liquid, aqueous, solid, and gas pours', () => {
@@ -130,5 +138,88 @@ describe('UI Equipment & Bench Logic (pour math, overflow clamp, transfers)', ()
     const precip = getPrecipitateInfo(beaker.mixture);
     expect(precip.massG).toBeCloseTo(1.0, 3);
     expect(precip.formulas).toContain('AgCl');
+  });
+
+  it('runs the make-water scenario (0.02 mol H2 + 0.01 mol O2) without bursting and yields 0.02 mol H2O on ignition', () => {
+    const jar = createVessel('gas_jar', 100, 100);
+
+    // Step 1: Load scenario (before ignition)
+    const beforeIgnite = runMakeWaterScenario(jar, false);
+    expect(jar.burst).toBe(false);
+    expect(beforeIgnite.hazards).not.toContain('burst');
+    expect(jar.mixture.moles.H2).toBeCloseTo(0.02, 5);
+    expect(jar.mixture.moles.O2).toBeCloseTo(0.01, 5);
+    expect(jar.mixture.moles.H2O ?? 0).toBe(0);
+
+    // Step 2: Ignite scenario
+    const afterIgnite = runMakeWaterScenario(jar, true);
+    expect(jar.burst).toBe(false);
+    expect(afterIgnite.hazards).not.toContain('burst');
+    expect(afterIgnite.reactionsFired).toContain('h2_o2_water');
+    expect(jar.mixture.moles.H2O).toBeCloseTo(0.02, 4);
+    expect(jar.mixture.moles.H2 ?? 0).toBeCloseTo(0, 4);
+    expect(jar.mixture.moles.O2 ?? 0).toBeCloseTo(0, 4);
+    expect(jar.mixture.tempK).toBeGreaterThan(298.15);
+  });
+
+  it('does not burst merely from stoppering; only bursts after heat or reaction and destroys/empties vessel', () => {
+    const flask = createVessel('flask', 100, 100);
+    pourChemical(flask, 'N2', 0.5, 'mol');
+    flask.closed = true;
+    flask.simulator.closed = true;
+
+    // Merely stoppering and stepping without heat or reaction must not burst
+    const idleStep = stepVesselPhysics(flask, 1.0);
+    expect(idleStep.hazards).not.toContain('burst');
+    expect(flask.burst).toBe(false);
+
+    // Heating closed gas vessel beyond burst limit triggers burst and spills contents
+    const burstStep = runClosedGasBurstScenario(flask);
+    expect(burstStep.hazards).toContain('burst');
+    expect(flask.burst).toBe(true);
+    expect(flask.mixture.totalMass()).toBe(0);
+  });
+
+  it('vents excess gas in open vessels so pressure stays near ~101.3 kPa and includes all 10 catalog items', () => {
+    const openBeaker = createVessel('beaker', 100, 100);
+    openBeaker.closed = false;
+    pourChemical(openBeaker, 'N2', 0.5, 'mol');
+
+    const res = stepVesselPhysics(openBeaker, 2.0);
+    expect(openBeaker.burst).toBe(false);
+    expect(res.pressureKPa).toBeLessThanOrEqual(105);
+    expect(openBeaker.mixture.moles.N2).toBeLessThan(0.5);
+
+    const catalogTypes = EQUIPMENT_CATALOG.map((item) => item.type);
+    expect(catalogTypes).toEqual(
+      expect.arrayContaining([
+        'beaker',
+        'flask',
+        'test_tube',
+        'gas_jar',
+        'stopper',
+        'burner',
+        'scale',
+        'pipette',
+        'thermometer',
+        'ph_meter',
+      ])
+    );
+  });
+
+  it('verifies neutralize, Na+H2O hazard, and NaOCl+NH3 hazard scenario functions', () => {
+    const beaker = createVessel('beaker', 100, 100);
+    const neutRes = runNeutralizeScenario(beaker);
+    expect(neutRes.reactionsFired).toContain('hcl_naoh');
+    expect(pH(beaker.mixture)).toBeCloseTo(7.0, 1);
+    expect(beaker.mixture.tempK).toBeGreaterThan(298.15);
+
+    const naRes = runSodiumWaterHazardScenario(beaker);
+    expect(naRes.reactionsFired).toContain('na_h2o');
+    expect(naRes.hazards).toContain('explosive');
+
+    const clRes = runChloramineHazardScenario(beaker);
+    expect(clRes.reactionsFired).toContain('naocl_nh3_aq_chloramine');
+    expect(clRes.hazards).toContain('toxic');
   });
 });

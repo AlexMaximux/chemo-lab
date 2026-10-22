@@ -3,19 +3,22 @@ import { REACTIONS } from '../engine/data/reactions';
 import { Mixture } from '../engine/mixture';
 import { Simulator } from '../engine/simulator';
 import { pH } from '../engine/solution';
+import { R_GAS } from '../engine/thermo';
 import { Reaction, StepResult } from '../engine/types';
 
 export type EquipmentType =
   | 'beaker'
   | 'flask'
   | 'test_tube'
+  | 'gas_jar'
+  | 'stopper'
   | 'burner'
   | 'scale'
   | 'pipette'
   | 'thermometer'
   | 'ph_meter';
 
-export type VesselType = 'beaker' | 'flask' | 'test_tube';
+export type VesselType = 'beaker' | 'flask' | 'test_tube' | 'gas_jar';
 
 export type PourUnit = 'mL' | 'g' | 'mol';
 
@@ -38,20 +41,23 @@ export interface EquipmentCatalogItem {
 }
 
 export const EQUIPMENT_CATALOG: EquipmentCatalogItem[] = [
-  { type: 'beaker', label: 'Beaker', subtitle: '250 mL Borosilicate', group: 'vessel', capacityL: 0.25 },
-  { type: 'flask', label: 'Erlenmeyer Flask', subtitle: '250 mL Conical', group: 'vessel', capacityL: 0.25 },
-  { type: 'test_tube', label: 'Test Tube', subtitle: '50 mL Rack Tube', group: 'vessel', capacityL: 0.05 },
-  { type: 'burner', label: 'Bunsen Burner', subtitle: 'Adjustable Heat Source', group: 'heat' },
-  { type: 'scale', label: 'Analytical Scale', subtitle: '0.01 g Precision', group: 'meter' },
-  { type: 'thermometer', label: 'Thermometer', subtitle: 'Digital K / °C Probe', group: 'meter' },
-  { type: 'ph_meter', label: 'pH Meter', subtitle: 'Glass Electrode', group: 'meter' },
-  { type: 'pipette', label: 'Graduated Pipette', subtitle: '10 mL Transfer', group: 'meter' },
+  { type: 'beaker', label: 'Beaker', subtitle: '250 mL Glass', group: 'vessel', capacityL: 0.25 },
+  { type: 'flask', label: 'Flask', subtitle: '250 mL Conical', group: 'vessel', capacityL: 0.25 },
+  { type: 'test_tube', label: 'Test Tube', subtitle: '50 mL Rack', group: 'vessel', capacityL: 0.05 },
+  { type: 'gas_jar', label: 'Gas Jar', subtitle: '500 mL Heavy', group: 'vessel', capacityL: 0.5 },
+  { type: 'stopper', label: 'Stopper', subtitle: 'Seal Vessel', group: 'vessel' },
+  { type: 'burner', label: 'Burner', subtitle: 'Bunsen Flame', group: 'heat' },
+  { type: 'scale', label: 'Scale', subtitle: '0.01 g Balance', group: 'meter' },
+  { type: 'pipette', label: 'Pipette', subtitle: '10 mL Dropper', group: 'meter' },
+  { type: 'thermometer', label: 'Thermometer', subtitle: '°C / K Probe', group: 'meter' },
+  { type: 'ph_meter', label: 'pH Meter', subtitle: 'Electrode', group: 'meter' },
 ];
 
 export const VESSEL_CAPACITIES_L: Record<VesselType, number> = {
   beaker: 0.25,
   flask: 0.25,
   test_tube: 0.05,
+  gas_jar: 0.5,
 };
 
 export interface LabVessel {
@@ -71,12 +77,13 @@ export interface LabVessel {
   lastReactionsFired: string[];
   overflowWarning: boolean;
   burst: boolean;
+  spilledColor?: string;
 }
 
 export interface LabTool {
   id: string;
   kind: 'tool';
-  toolType: Exclude<EquipmentType, VesselType>;
+  toolType: Exclude<EquipmentType, VesselType | 'stopper'>;
   label: string;
   x: number;
   y: number;
@@ -125,18 +132,22 @@ export function createVessel(
 ): LabVessel {
   const id = `vessel_${nextEquipmentCounter++}`;
   const capacityL = VESSEL_CAPACITIES_L[vesselType];
+  const burstPressureKPa = vesselType === 'gas_jar' ? 600.0 : 300.0;
   const mixture = new Mixture();
   const simulator = new Simulator(mixture, {
     vesselL: capacityL,
     closed: false,
+    burstPressureKPa,
   });
 
   const dims =
     vesselType === 'beaker'
-      ? { width: 112, height: 140, defaultLabel: 'Beaker 250mL' }
+      ? { width: 108, height: 138, defaultLabel: 'Beaker 250mL' }
       : vesselType === 'flask'
-        ? { width: 116, height: 148, defaultLabel: 'Flask 250mL' }
-        : { width: 72, height: 144, defaultLabel: 'Test Tube 50mL' };
+        ? { width: 112, height: 144, defaultLabel: 'Flask 250mL' }
+        : vesselType === 'gas_jar'
+          ? { width: 104, height: 152, defaultLabel: 'Gas Jar 500mL' }
+          : { width: 72, height: 140, defaultLabel: 'Test Tube 50mL' };
 
   return {
     id,
@@ -155,7 +166,7 @@ export function createVessel(
       reactionsFired: [],
       heatJ: 0,
       tempK: mixture.tempK,
-      pressureKPa: 0,
+      pressureKPa: 101.3,
       hazards: [],
     },
     lastReactionsFired: [],
@@ -165,20 +176,20 @@ export function createVessel(
 }
 
 export function createTool(
-  toolType: Exclude<EquipmentType, VesselType>,
+  toolType: Exclude<EquipmentType, VesselType | 'stopper'>,
   x: number,
   y: number
 ): LabTool {
   const id = `tool_${nextEquipmentCounter++}`;
   const meta: Record<
-    Exclude<EquipmentType, VesselType>,
+    Exclude<EquipmentType, VesselType | 'stopper'>,
     { label: string; width: number; height: number; active: boolean; powerWatts: number }
   > = {
-    burner: { label: 'Bunsen Burner', width: 88, height: 112, active: true, powerWatts: 1800 },
-    scale: { label: 'Analytical Scale', width: 148, height: 54, active: true, powerWatts: 0 },
-    pipette: { label: 'Pipette (10 mL)', width: 56, height: 120, active: false, powerWatts: 0 },
-    thermometer: { label: 'Thermometer', width: 56, height: 128, active: true, powerWatts: 0 },
-    ph_meter: { label: 'pH Probe', width: 76, height: 120, active: true, powerWatts: 0 },
+    burner: { label: 'Bunsen Burner', width: 84, height: 108, active: true, powerWatts: 1800 },
+    scale: { label: 'Analytical Scale', width: 144, height: 52, active: true, powerWatts: 0 },
+    pipette: { label: 'Pipette (10 mL)', width: 52, height: 116, active: false, powerWatts: 0 },
+    thermometer: { label: 'Thermometer', width: 54, height: 124, active: true, powerWatts: 0 },
+    ph_meter: { label: 'pH Probe', width: 72, height: 118, active: true, powerWatts: 0 },
   };
   const cfg = meta[toolType];
   return {
@@ -196,7 +207,154 @@ export function createTool(
 }
 
 export function isVesselType(type: EquipmentType): type is VesselType {
-  return type === 'beaker' || type === 'flask' || type === 'test_tube';
+  return type === 'beaker' || type === 'flask' || type === 'test_tube' || type === 'gas_jar';
+}
+
+export function resetVesselState(vessel: LabVessel): void {
+  vessel.mixture.moles = {};
+  vessel.mixture.volumeL = 0;
+  vessel.mixture.tempK = 298.15;
+  vessel.overflowWarning = false;
+  vessel.burst = false;
+  vessel.spilledColor = undefined;
+  vessel.lastReactionsFired = [];
+  vessel.simulator.resetState();
+  vessel.lastStepResult = {
+    reactionsFired: [],
+    heatJ: 0,
+    tempK: 298.15,
+    pressureKPa: 101.3,
+    hazards: [],
+  };
+}
+
+/**
+ * Steps the vessel's chemical simulator and applies open-vessel atmospheric gas venting
+ * or closed-vessel rupture/spillage rules.
+ */
+export function stepVesselPhysics(vessel: LabVessel, dtSeconds: number): StepResult {
+  if (vessel.burst) {
+    return {
+      reactionsFired: [],
+      heatJ: 0,
+      tempK: vessel.mixture.tempK,
+      pressureKPa: 101.3,
+      hazards: [],
+    };
+  }
+
+  vessel.simulator.vesselL = vessel.capacityL;
+  vessel.simulator.closed = vessel.closed;
+
+  const result = vessel.simulator.step(dtSeconds);
+
+  // Open vessels vent excess gas to atmosphere proportionally so pressure stays near ~101.3 kPa
+  if (!vessel.closed) {
+    const headspaceL = Math.max(0.01, vessel.capacityL - Math.max(0, vessel.mixture.volumeL));
+    const maxAtmGasMoles = (101.325 * headspaceL) / (R_GAS * Math.max(200, vessel.mixture.tempK));
+
+    let currentGasMoles = 0;
+    for (const [id, n] of Object.entries(vessel.mixture.moles)) {
+      if (n > 0 && SPECIES[id]?.phase === 'g') {
+        currentGasMoles += n;
+      }
+    }
+
+    if (currentGasMoles > maxAtmGasMoles) {
+      const scale = maxAtmGasMoles / currentGasMoles;
+      for (const [id, n] of Object.entries(vessel.mixture.moles)) {
+        if (n > 0 && SPECIES[id]?.phase === 'g') {
+          vessel.mixture.moles[id] = n * scale;
+        }
+      }
+    }
+    result.pressureKPa = 101.3;
+  }
+
+  // Clamp liquid volume if reaction produced liquid exceeding vessel capacity
+  if (vessel.mixture.volumeL > vessel.capacityL) {
+    vessel.mixture.volumeL = vessel.capacityL;
+    vessel.overflowWarning = true;
+  }
+
+  if (result.reactionsFired.length > 0) {
+    vessel.lastReactionsFired = result.reactionsFired;
+  }
+
+  // If a burst occurred (only possible when closed AND after heat or reaction), shatter vessel and spill contents
+  if (result.hazards.includes('burst')) {
+    vessel.burst = true;
+    vessel.closed = false;
+    vessel.simulator.closed = false;
+    vessel.spilledColor = blendMixtureColor(vessel.mixture);
+    vessel.mixture.moles = {};
+    vessel.mixture.volumeL = 0;
+  }
+
+  vessel.lastStepResult = result;
+  return result;
+}
+
+/**
+ * Pure scenario helper for 2H2 + O2 -> 2H2O (make water).
+ * Uses 0.02 mol H2 + 0.01 mol O2 in a stoppered vessel so internal pressure stays safe (~148-297 kPa),
+ * then on ignition forms 0.02 mol H2O liquid with flame, heat, and condensation without bursting.
+ */
+export function runMakeWaterScenario(vessel: LabVessel, igniteNow = false): StepResult {
+  if (!igniteNow) {
+    resetVesselState(vessel);
+    vessel.closed = true;
+    vessel.simulator.closed = true;
+    pourChemical(vessel, 'H2', 0.02, 'mol');
+    pourChemical(vessel, 'O2', 0.01, 'mol');
+    return stepVesselPhysics(vessel, 0.05);
+  }
+
+  const hasReactants =
+    (vessel.mixture.moles.H2 ?? 0) > 1e-5 && (vessel.mixture.moles.O2 ?? 0) > 1e-5;
+  if (!hasReactants) {
+    resetVesselState(vessel);
+    vessel.closed = true;
+    vessel.simulator.closed = true;
+    pourChemical(vessel, 'H2', 0.02, 'mol');
+    pourChemical(vessel, 'O2', 0.01, 'mol');
+  }
+
+  vessel.simulator.ignite();
+  return stepVesselPhysics(vessel, 0.25);
+}
+
+/**
+ * Pure scenario helper for closed-vessel gas overpressure burst demo.
+ */
+export function runClosedGasBurstScenario(vessel: LabVessel): StepResult {
+  resetVesselState(vessel);
+  vessel.closed = true;
+  vessel.simulator.closed = true;
+  pourChemical(vessel, 'N2', 0.25, 'mol');
+  vessel.simulator.heat(65000);
+  return stepVesselPhysics(vessel, 0.1);
+}
+
+export function runNeutralizeScenario(vessel: LabVessel): StepResult {
+  resetVesselState(vessel);
+  pourChemical(vessel, 'HCl', 50, 'mL', { molarity: 1.0 });
+  pourChemical(vessel, 'NaOH', 50, 'mL', { molarity: 1.0 });
+  return stepVesselPhysics(vessel, 0.1);
+}
+
+export function runSodiumWaterHazardScenario(vessel: LabVessel): StepResult {
+  resetVesselState(vessel);
+  pourChemical(vessel, 'H2O', 80, 'mL');
+  pourChemical(vessel, 'Na', 2.0, 'g');
+  return stepVesselPhysics(vessel, 0.1);
+}
+
+export function runChloramineHazardScenario(vessel: LabVessel): StepResult {
+  resetVesselState(vessel);
+  pourChemical(vessel, 'NaOCl', 40, 'mL', { molarity: 1.0 });
+  pourChemical(vessel, 'NH3(aq)', 40, 'mL', { molarity: 1.0 });
+  return stepVesselPhysics(vessel, 0.1);
 }
 
 export function calculatePourAmount(
@@ -219,7 +377,7 @@ export function calculatePourAmount(
   if (unit === 'mL') {
     const reqVolumeL = amount / 1000.0;
     if (sp.phase === 'l') {
-      const density = sp.density ?? 1.0; // g/mL
+      const density = sp.density ?? 1.0;
       const massG = amount * density;
       moles = massG / sp.molarMass;
       volumeL = reqVolumeL;
@@ -227,12 +385,11 @@ export function calculatePourAmount(
       volumeL = reqVolumeL;
       moles = reqVolumeL * molarity;
     } else if (sp.phase === 's') {
-      const density = sp.density ?? 2.0; // g/cm^3
+      const density = sp.density ?? 2.0;
       const massG = amount * density;
       moles = massG / sp.molarMass;
       volumeL = reqVolumeL;
     } else {
-      // gas ('g'): occupies vessel headspace rather than liquid volume
       moles = reqVolumeL / molarVolumeGasL;
       volumeL = 0;
     }
@@ -279,6 +436,17 @@ export function pourChemical(
   unit: PourUnit,
   opts?: PourOptions
 ): PourResult {
+  if (vessel.burst) {
+    return {
+      addedMoles: 0,
+      addedVolumeL: 0,
+      overflowVolumeL: 0,
+      overflowed: false,
+      ignored: true,
+      message: `${vessel.label} is shattered! Reset bench or select another vessel.`,
+    };
+  }
+
   const sp = SPECIES[speciesId];
   if (!sp) {
     return {
@@ -348,8 +516,6 @@ export function pourChemical(
   const volBefore = vessel.mixture.volumeL;
   vessel.mixture.add(speciesId, actualMoles);
 
-  // Mixture.add automatically increases volumeL for 'l' phase when explicitVolume is false.
-  // Ensure total volume change equals actualVolumeL and stays clamped in [0, vessel.capacityL].
   const targetVolumeL = Math.max(0, Math.min(vessel.capacityL, volBefore + actualVolumeL));
   vessel.mixture.volumeL = targetVolumeL;
 
@@ -384,6 +550,16 @@ export function transferBetweenVessels(
       overflowed: false,
       ignored: true,
       message: 'Cannot transfer from a vessel into itself.',
+    };
+  }
+
+  if (source.burst || target.burst) {
+    return {
+      transferredMoles: 0,
+      transferredVolumeL: 0,
+      overflowed: false,
+      ignored: true,
+      message: 'Cannot transfer with a shattered vessel.',
     };
   }
 
@@ -442,7 +618,6 @@ export function transferBetweenVessels(
     }
     fraction = Math.min(1.0, actualTransferVolL / sourceVolL);
   } else {
-    // Gas-only or dry solid transfer where volumeL === 0
     fraction = Math.min(1.0, reqVolumeL / Math.max(0.05, source.capacityL));
   }
 
@@ -456,7 +631,6 @@ export function transferBetweenVessels(
     };
   }
 
-  // Heat-capacity weighted temperature mixing
   const targetCpBefore = Math.max(target.mixture.heatCapacity(), 10);
   const transferredCp = Math.max(source.mixture.heatCapacity() * fraction, 10);
   const mixedTempK =
@@ -514,7 +688,6 @@ function parseHexColor(hex: string): [number, number, number] {
 }
 
 export function blendMixtureColor(mixture: Mixture): string {
-  // Default base water/solution tint
   let rSum = 195 * 0.15;
   let gSum = 232 * 0.15;
   let bSum = 255 * 0.15;
@@ -525,7 +698,6 @@ export function blendMixtureColor(mixture: Mixture): string {
     if (moles <= 1e-9) continue;
     const sp = SPECIES[id];
     if (!sp) continue;
-    // Skip pure gases unless dissolved, and weight colored solutes strongly so color transitions are vivid
     if (sp.phase === 'g') continue;
 
     if (sp.color && id !== 'H2O') {
@@ -545,7 +717,6 @@ export function blendMixtureColor(mixture: Mixture): string {
     }
   }
 
-  // Slight pH tinting if clear acid/base solution so neutralization is visually rewarding
   if (coloredSoluteWeight < 0.05 && mixture.volumeL > 0) {
     const currentPh = pH(mixture);
     if (currentPh < 5.5) {
@@ -639,7 +810,10 @@ export function getHeadspaceGasInfo(mixture: Mixture): { moles: number; color: s
   const r = Math.round(rSum / wSum);
   const g = Math.round(gSum / wSum);
   const b = Math.round(bSum / wSum);
-  const alpha = coloredGasMoles > 0 ? Math.min(0.42, 0.12 + coloredGasMoles * 0.25) : Math.min(0.14, 0.04 + gasMoles * 0.03);
+  const alpha =
+    coloredGasMoles > 0
+      ? Math.min(0.42, 0.12 + coloredGasMoles * 0.25)
+      : Math.min(0.14, 0.04 + gasMoles * 0.03);
   return {
     moles: gasMoles,
     color: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`,
@@ -693,9 +867,7 @@ export function formatReactionEquation(reactionOrId: string | Reaction): string 
 
 export function getSpeciesCategory(sp: Species): Exclude<ChemicalCategory, 'all'> {
   if (sp.phase === 'g') return 'gases';
-  if (
-    ['C2H5OH', 'C6H12O6', 'C3H8', 'C2H4', 'CH3OH', 'CH4'].includes(sp.id)
-  ) {
+  if (['C2H5OH', 'C6H12O6', 'C3H8', 'C2H4', 'CH3OH', 'CH4'].includes(sp.id)) {
     return 'organics';
   }
   if (sp.ka !== undefined && sp.ka >= 1e-7 && sp.id !== 'NH4Cl') {
@@ -712,9 +884,7 @@ export function getSpeciesCategory(sp: Species): Exclude<ChemicalCategory, 'all'
   if (['Na', 'K', 'Ca', 'Mg', 'Al', 'Zn', 'Fe', 'Cu', 'Ag', 'C', 'S'].includes(sp.id)) {
     return 'metals';
   }
-  if (
-    ['H2O', 'H2O2', 'Br2', 'MgO', 'CaO', 'CuO', 'ZnO', 'Fe2O3', 'Al2O3'].includes(sp.id)
-  ) {
+  if (['H2O', 'H2O2', 'Br2', 'MgO', 'CaO', 'CuO', 'ZnO', 'Fe2O3', 'Al2O3'].includes(sp.id)) {
     return 'liquids_oxides';
   }
   return 'salts';

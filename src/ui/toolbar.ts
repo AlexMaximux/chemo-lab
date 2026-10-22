@@ -12,12 +12,12 @@ import {
 } from './equipment';
 
 const CATEGORY_LABELS: Array<{ id: ChemicalCategory; label: string }> = [
-  { id: 'all', label: 'All Species' },
+  { id: 'all', label: 'All' },
   { id: 'gases', label: 'Gases' },
   { id: 'acids', label: 'Acids' },
   { id: 'bases', label: 'Bases' },
-  { id: 'salts', label: 'Salts & Ions' },
-  { id: 'metals', label: 'Metals & Solids' },
+  { id: 'salts', label: 'Salts' },
+  { id: 'metals', label: 'Metals' },
   { id: 'organics', label: 'Organics' },
   { id: 'liquids_oxides', label: 'Liquids & Oxides' },
 ];
@@ -28,6 +28,7 @@ export class ToolbarAndInspectorUI {
   private searchQuery = '';
   private holdIntervalId: number | null = null;
   private flowRateMultiplier = 1.0;
+  private inspectorCollapsed = false;
 
   private inspectorContainer!: HTMLElement;
   private warningBannerEl!: HTMLElement;
@@ -45,7 +46,6 @@ export class ToolbarAndInspectorUI {
       <div class="header-brand">
         <div class="brand-emblem" aria-hidden="true">
           <span class="emblem-dot"></span>
-          <span class="emblem-ring"></span>
         </div>
         <div>
           <h1 class="brand-title">CHEM-LAB <span class="brand-version">PRO ENGINE</span></h1>
@@ -55,7 +55,7 @@ export class ToolbarAndInspectorUI {
 
       <div class="header-presets" role="group" aria-label="Quick Lab Scenarios">
         <span class="control-group-label">SCENARIOS</span>
-        <button type="button" class="btn-chip" data-preset="make_water" title="Load 2 mol H2 + 1 mol O2 in Flask, ready to ignite">
+        <button type="button" class="btn-chip" data-preset="make_water" title="Load 0.02 mol H2 + 0.01 mol O2 in Stoppered Gas Jar, ready to ignite">
           2H₂ + O₂ → 2H₂O
         </button>
         <button type="button" class="btn-chip" data-preset="neutralize" title="Mix 50 mL 1M HCl + 50 mL 1M NaOH">
@@ -74,7 +74,7 @@ export class ToolbarAndInspectorUI {
 
       <div class="header-controls">
         <div class="sim-clock-pill" title="Simulated elapsed time">
-          <span class="clock-label">SIM TIME</span>
+          <span class="clock-label">SIM</span>
           <span class="clock-value" id="sim-clock-readout">0.0s</span>
         </div>
 
@@ -86,20 +86,19 @@ export class ToolbarAndInspectorUI {
         </div>
 
         <button type="button" class="btn-action btn-ignite" id="btn-global-ignite" title="Apply ignition spark to selected vessel">
-          ⚡ Spark / Ignite
+          ⚡ Spark
         </button>
         <button type="button" class="btn-action btn-heat" id="btn-global-heat" title="Add 5 kJ thermal energy to selected vessel">
-          🔥 Heat +5 kJ
+          🔥 +5 kJ
         </button>
         <button type="button" class="btn-action btn-ghost" id="btn-reset-bench" title="Reset bench equipment to clean starter state">
-          ↺ Reset Bench
+          ↺ Reset
         </button>
       </div>
     `;
 
     this.simClockEl = container.querySelector('#sim-clock-readout') as HTMLElement;
 
-    // Speed buttons
     const speedBtns = container.querySelectorAll<HTMLButtonElement>('button[data-speed]');
     speedBtns.forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -131,15 +130,18 @@ export class ToolbarAndInspectorUI {
       this.showNotice('Bench reset to clean starter configuration.', 'info');
     });
 
-    // Preset scenario buttons
     container.querySelectorAll<HTMLButtonElement>('button[data-preset]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this.runScenarioPreset(btn.dataset.preset || '');
+        this.clearWarningBanner();
+        this.bench.runScenario(btn.dataset.preset || '');
       });
     });
   }
 
-  public mountBannersAndInspector(benchOverlayContainer: HTMLElement): void {
+  public mountBannersAndInspector(
+    benchOverlayContainer: HTMLElement,
+    dockedInspectorContainer: HTMLElement
+  ): void {
     benchOverlayContainer.innerHTML = `
       <div class="warning-banner hidden" id="hazard-warning-banner" role="alert" aria-live="assertive">
         <div class="warning-banner-content">
@@ -153,14 +155,11 @@ export class ToolbarAndInspectorUI {
       </div>
 
       <div class="notice-toast hidden" id="bench-notice-toast" role="status" aria-live="polite"></div>
-
-      <aside class="vessel-inspector" id="vessel-inspector-card" aria-label="Selected Vessel Inspector">
-      </aside>
     `;
 
     this.warningBannerEl = benchOverlayContainer.querySelector('#hazard-warning-banner') as HTMLElement;
     this.noticeToastEl = benchOverlayContainer.querySelector('#bench-notice-toast') as HTMLElement;
-    this.inspectorContainer = benchOverlayContainer.querySelector('#vessel-inspector-card') as HTMLElement;
+    this.inspectorContainer = dockedInspectorContainer;
 
     benchOverlayContainer.querySelector('#btn-dismiss-hazard')?.addEventListener('click', () => {
       this.clearWarningBanner();
@@ -174,11 +173,11 @@ export class ToolbarAndInspectorUI {
 
     container.innerHTML = `
       <div class="toolbar-layout">
-        <!-- Left Section: Draggable Equipment & Meters -->
+        <!-- Left Section: 10 Draggable Equipment & Meters -->
         <section class="toolbar-equipment-pane" aria-label="Equipment & Meters">
           <div class="pane-header">
-            <span class="pane-title">LABWARE & INSTRUMENTS</span>
-            <span class="pane-hint">Drag onto bench or click to place</span>
+            <span class="pane-title">LABWARE & INSTRUMENTS (10)</span>
+            <span class="pane-hint">Drag to bench or click</span>
           </div>
           <div class="equipment-strip" id="equipment-strip">
             ${EQUIPMENT_CATALOG.map(
@@ -188,18 +187,17 @@ export class ToolbarAndInspectorUI {
                 class="equip-card"
                 draggable="true"
                 data-equip-type="${item.type}"
-                title="Drag onto bench or click to add ${item.label}"
+                title="Drag onto bench or click to use ${item.label} (${item.subtitle})"
               >
-                <span class="equip-icon" data-icon="${item.type}">${this.getEquipmentSvgIcon(item.type)}</span>
+                <span class="equip-icon">${this.getEquipmentSvgIcon(item.type)}</span>
                 <span class="equip-name">${item.label}</span>
-                <span class="equip-sub">${item.subtitle}</span>
               </button>
             `
             ).join('')}
           </div>
         </section>
 
-        <!-- Right Section: 60+ Chemical Library Drawer with Search, Category Tabs & Pour Controls -->
+        <!-- Right Section: 60+ Chemical Library Drawer -->
         <section class="toolbar-chemicals-pane" aria-label="Chemical Reagent Drawer">
           <div class="chem-drawer-controls">
             <div class="chem-search-wrap">
@@ -208,31 +206,35 @@ export class ToolbarAndInspectorUI {
                 type="search"
                 id="chem-search-input"
                 class="chem-search-input"
-                placeholder="Search ${allSpeciesCount} chemicals (e.g. H2, O2, HCl, NaOH, CuSO4, NaOCl)..."
+                placeholder="Search ${allSpeciesCount} chemicals (H2, O2, HCl, NaOH)..."
                 aria-label="Search chemicals by formula, name, or hazard"
                 autocomplete="off"
               />
               <span class="chem-count-badge" id="chem-count-badge">${allSpeciesCount}</span>
             </div>
 
-            <div class="chem-category-tabs" role="tablist" aria-label="Chemical categories">
-              ${CATEGORY_LABELS.map(
-                (cat) => `
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected="${cat.id === this.activeCategory}"
-                  class="cat-tab ${cat.id === this.activeCategory ? 'active' : ''}"
-                  data-cat="${cat.id}"
-                >
-                  ${cat.label}
-                </button>
-              `
-              ).join('')}
+            <div class="chem-tabs-scroll-shell">
+              <button type="button" class="tab-scroll-arrow" id="tab-scroll-left" aria-label="Scroll categories left">‹</button>
+              <div class="chem-category-tabs" id="chem-category-tabs" role="tablist" aria-label="Chemical categories">
+                ${CATEGORY_LABELS.map(
+                  (cat) => `
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="${cat.id === this.activeCategory}"
+                    class="cat-tab ${cat.id === this.activeCategory ? 'active' : ''}"
+                    data-cat="${cat.id}"
+                  >
+                    ${cat.label}
+                  </button>
+                `
+                ).join('')}
+              </div>
+              <button type="button" class="tab-scroll-arrow" id="tab-scroll-right" aria-label="Scroll categories right">›</button>
             </div>
 
             <div class="pour-rate-control" title="Adjust continuous hold-to-pour flow speed">
-              <label for="pour-rate-slider" class="rate-label">Hold Flow:</label>
+              <label for="pour-rate-slider" class="rate-label">Flow:</label>
               <input
                 type="range"
                 id="pour-rate-slider"
@@ -254,7 +256,6 @@ export class ToolbarAndInspectorUI {
     this.chemGridEl = container.querySelector('#chem-drawer-grid') as HTMLElement;
     this.chemCountBadgeEl = container.querySelector('#chem-count-badge') as HTMLElement;
 
-    // Bind equipment drag & click
     container.querySelectorAll<HTMLButtonElement>('.equip-card').forEach((card) => {
       const eqType = card.dataset.equipType as any;
       card.addEventListener('dragstart', (e) => {
@@ -268,14 +269,20 @@ export class ToolbarAndInspectorUI {
       });
     });
 
-    // Search input
     const searchInput = container.querySelector('#chem-search-input') as HTMLInputElement;
     searchInput.addEventListener('input', () => {
       this.searchQuery = searchInput.value.trim().toLowerCase();
       this.renderChemicalGrid();
     });
 
-    // Category tabs
+    const tabsStrip = container.querySelector('#chem-category-tabs') as HTMLElement;
+    container.querySelector('#tab-scroll-left')?.addEventListener('click', () => {
+      tabsStrip.scrollBy({ left: -120, behavior: 'smooth' });
+    });
+    container.querySelector('#tab-scroll-right')?.addEventListener('click', () => {
+      tabsStrip.scrollBy({ left: 120, behavior: 'smooth' });
+    });
+
     const catTabs = container.querySelectorAll<HTMLButtonElement>('.cat-tab');
     catTabs.forEach((tab) => {
       tab.addEventListener('click', () => {
@@ -290,7 +297,6 @@ export class ToolbarAndInspectorUI {
       });
     });
 
-    // Pour flow rate slider
     const rateSlider = container.querySelector('#pour-rate-slider') as HTMLInputElement;
     const rateVal = container.querySelector('#pour-rate-val') as HTMLElement;
     rateSlider.addEventListener('input', () => {
@@ -327,7 +333,6 @@ export class ToolbarAndInspectorUI {
       .map((sp) => this.renderChemicalCardHtml(sp))
       .join('');
 
-    // Wire fixed pour and hold-to-pour events
     this.chemGridEl.querySelectorAll<HTMLElement>('.chem-card').forEach((card) => {
       const spId = card.dataset.speciesId!;
       card.addEventListener('dragstart', (e) => {
@@ -356,7 +361,7 @@ export class ToolbarAndInspectorUI {
           if (!sp) return;
           const unit: PourUnit = sp.phase === 's' ? 'g' : sp.phase === 'g' ? 'mol' : 'mL';
           const stepAmt =
-            (sp.phase === 's' ? 0.25 : sp.phase === 'g' ? 0.1 : 2.5) * this.flowRateMultiplier;
+            (sp.phase === 's' ? 0.25 : sp.phase === 'g' ? 0.005 : 2.5) * this.flowRateMultiplier;
 
           this.bench.pourIntoSelected(spId, stepAmt, unit);
           this.holdIntervalId = window.setInterval(() => {
@@ -396,16 +401,19 @@ export class ToolbarAndInspectorUI {
         ? `<span class="chem-hazard-dot" title="Hazards: ${hazards.join(', ')}">⚠ ${hazards[0]}</span>`
         : '';
 
-    // Provide 10 mL, 1 g, and (for gases/stoichiometry) 1 mol fixed buttons + Hold button
-    const thirdBtn =
+    const actionsHtml =
       sp.phase === 'g'
-        ? `<button type="button" class="pour-btn" data-pour-fixed="true" data-amount="1" data-unit="mol" title="Inject 1.0 mol gas">+1 mol</button>`
-        : `<button type="button" class="pour-btn pour-btn-hold" data-pour-hold="true" title="Press and hold to pour continuously">Hold</button>`;
-
-    const holdForGas =
-      sp.phase === 'g'
-        ? `<button type="button" class="pour-btn pour-btn-hold" data-pour-hold="true" title="Hold to inject gas stream">Hold</button>`
-        : '';
+        ? `
+          <button type="button" class="pour-btn" data-pour-fixed="true" data-amount="10" data-unit="mL" title="Add 10 mL gas">+10mL</button>
+          <button type="button" class="pour-btn" data-pour-fixed="true" data-amount="1" data-unit="g" title="Add 1 g gas">+1g</button>
+          <button type="button" class="pour-btn" data-pour-fixed="true" data-amount="0.01" data-unit="mol" title="Inject 0.01 mol gas">+.01mol</button>
+          <button type="button" class="pour-btn pour-btn-hold" data-pour-hold="true" title="Hold to inject gas stream">Hold</button>
+        `
+        : `
+          <button type="button" class="pour-btn" data-pour-fixed="true" data-amount="10" data-unit="mL" title="Add 10 mL">+10 mL</button>
+          <button type="button" class="pour-btn" data-pour-fixed="true" data-amount="1" data-unit="g" title="Add 1 gram">+1 g</button>
+          <button type="button" class="pour-btn pour-btn-hold" data-pour-hold="true" title="Press and hold to pour continuously">Hold</button>
+        `;
 
     return `
       <div class="chem-card" draggable="true" data-species-id="${sp.id}">
@@ -425,10 +433,7 @@ export class ToolbarAndInspectorUI {
           <span>ΔHf ${sp.dHf > 0 ? '+' : ''}${sp.dHf.toFixed(0)}</span>
         </div>
         <div class="chem-actions">
-          <button type="button" class="pour-btn" data-pour-fixed="true" data-amount="10" data-unit="mL" title="Add 10 mL">+10 mL</button>
-          <button type="button" class="pour-btn" data-pour-fixed="true" data-amount="1" data-unit="g" title="Add 1 gram">+1 g</button>
-          ${thirdBtn}
-          ${holdForGas}
+          ${actionsHtml}
         </div>
       </div>
     `;
@@ -445,10 +450,13 @@ export class ToolbarAndInspectorUI {
 
     if (!vessel) {
       this.inspectorContainer.innerHTML = `
-        <div class="inspector-empty">
-          <div class="inspector-title">NO VESSEL SELECTED</div>
-          <p>Click a vessel on the bench or drag a new Beaker/Flask from the bottom toolbar.</p>
+        <div class="inspector-header">
+          <div>
+            <div class="inspector-eyebrow">VESSEL INSPECTOR</div>
+            <h2 class="inspector-vessel-name">No Vessel Selected</h2>
+          </div>
         </div>
+        <div class="contents-empty">Click any vessel on the bench to inspect contents.</div>
       `;
       return;
     }
@@ -472,67 +480,89 @@ export class ToolbarAndInspectorUI {
         .join('');
     }
 
-    const otherVessels = this.bench.getVessels().filter((v) => v.id !== vessel.id);
+    const otherVessels = this.bench.getVessels().filter((v) => v.id !== vessel.id && !v.burst);
+
+    const volFormatted =
+      volML > 0 && volML < 1.0 ? `${volML.toFixed(2)} mL` : `${volML.toFixed(1)} mL`;
 
     this.inspectorContainer.innerHTML = `
       <div class="inspector-header">
         <div>
-          <div class="inspector-eyebrow">ACTIVE VESSEL TELEMETRY</div>
+          <div class="inspector-eyebrow">ACTIVE VESSEL INSPECTOR</div>
           <h2 class="inspector-vessel-name">${this.escapeHtml(vessel.label)}</h2>
         </div>
-        <button
-          type="button"
-          class="btn-stopper ${vessel.closed ? 'stoppered' : ''}"
-          id="btn-toggle-stopper"
-          title="Toggle rubber stopper to test open vs closed gas pressure"
-        >
-          ${vessel.closed ? '🔒 Stoppered' : '🔓 Open Top'}
-        </button>
-      </div>
-
-      <div class="inspector-metrics-grid">
-        <div class="metric-box">
-          <span class="metric-label">TEMPERATURE</span>
-          <span class="metric-value">${tempC.toFixed(1)} °C</span>
-          <span class="metric-sub">${vessel.mixture.tempK.toFixed(1)} K</span>
-        </div>
-        <div class="metric-box">
-          <span class="metric-label">SOLUTION pH</span>
-          <span class="metric-value ${phClass}">${phVal.toFixed(2)}</span>
-          <span class="metric-sub">${phVal < 6.5 ? 'Acidic' : phVal > 7.5 ? 'Basic' : 'Neutral'}</span>
-        </div>
-        <div class="metric-box">
-          <span class="metric-label">VOLUME / CAP</span>
-          <span class="metric-value">${volML.toFixed(1)} mL</span>
-          <span class="metric-sub">${fillPct.toFixed(0)}% of ${maxML.toFixed(0)} mL</span>
-        </div>
-        <div class="metric-box">
-          <span class="metric-label">MASS & GAS P</span>
-          <span class="metric-value">${totalMassG.toFixed(2)} g</span>
-          <span class="metric-sub">${pressureKPa.toFixed(1)} kPa</span>
+        <div class="inspector-header-btns">
+          <button
+            type="button"
+            class="btn-stopper ${vessel.closed ? 'stoppered' : ''}"
+            id="btn-toggle-stopper"
+            title="Toggle rubber stopper (open vs closed)"
+          >
+            ${vessel.closed ? '🔒 Sealed' : '🔓 Open'}
+          </button>
+          <button
+            type="button"
+            class="btn-collapse-insp"
+            id="btn-collapse-insp"
+            title="Collapse or expand inspector details"
+          >
+            ${this.inspectorCollapsed ? '▾' : '▴'}
+          </button>
         </div>
       </div>
 
-      <div class="inspector-section">
-        <div class="section-label">REACTION STATUS</div>
-        <div class="rxn-status-box">
-          ${reactionDisplay}
-        </div>
-      </div>
-
-      <div class="inspector-section">
-        <div class="section-label">SPECIES CONTENTS (${entries.length})</div>
+      <div class="inspector-body ${this.inspectorCollapsed ? 'hidden' : ''}">
         ${
-          entries.length === 0
-            ? `<div class="contents-empty">Vessel is empty. Pour reagents from the bottom drawer.</div>`
-            : `<div class="contents-table-wrap">
-                <table class="contents-table">
+          vessel.burst
+            ? `<div class="shattered-banner">
+                <span>⚠ VESSEL SHATTERED BY OVERPRESSURE (Contents Spilled)</span>
+                <button type="button" class="insp-btn" id="insp-btn-restore">Restore Vessel</button>
+              </div>`
+            : ''
+        }
+
+        <div class="inspector-metrics-grid">
+          <div class="metric-box">
+            <span class="metric-label">TEMP</span>
+            <span class="metric-value">${tempC.toFixed(1)} °C</span>
+            <span class="metric-sub">${vessel.mixture.tempK.toFixed(1)} K</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">pH</span>
+            <span class="metric-value ${phClass}">${phVal.toFixed(2)}</span>
+            <span class="metric-sub">${phVal < 6.5 ? 'Acidic' : phVal > 7.5 ? 'Basic' : 'Neutral'}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">VOLUME</span>
+            <span class="metric-value">${volFormatted}</span>
+            <span class="metric-sub">${fillPct.toFixed(0)}% of ${maxML.toFixed(0)} mL</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">MASS / P</span>
+            <span class="metric-value">${totalMassG.toFixed(2)} g</span>
+            <span class="metric-sub">${pressureKPa.toFixed(1)} kPa</span>
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <div class="section-label">REACTION EQUATION</div>
+          <div class="rxn-status-box">
+            ${reactionDisplay}
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <div class="section-label">CONTENTS (${entries.length})</div>
+          ${
+            entries.length === 0
+              ? `<div class="contents-empty">Empty — pour reagents below.</div>`
+              : `<table class="contents-table">
                   <thead>
                     <tr>
                       <th>Species</th>
                       <th>Moles</th>
                       <th>Mass</th>
-                      <th>Vol / Conc</th>
+                      <th>Vol/Conc</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -541,11 +571,12 @@ export class ToolbarAndInspectorUI {
                         const sp = SPECIES[spId];
                         if (!sp) return '';
                         const mass = moles * sp.molarMass;
+                        const volMLSp = mass / (sp.density ?? 1.0);
                         const volOrConc =
                           sp.phase === 'aq' && vessel.mixture.volumeL > 0
                             ? `${(moles / vessel.mixture.volumeL).toFixed(2)} M`
                             : sp.phase === 'l'
-                              ? `${((mass / (sp.density ?? 1.0))).toFixed(1)} mL`
+                              ? `${volMLSp < 1 ? volMLSp.toFixed(2) : volMLSp.toFixed(1)} mL`
                               : sp.phase === 'g'
                                 ? 'gas'
                                 : 'solid';
@@ -555,35 +586,42 @@ export class ToolbarAndInspectorUI {
                               <span class="tbl-formula">${formatFormula(sp.formula)}</span>
                               <span class="chem-phase phase-${sp.phase}">${sp.phase}</span>
                             </td>
-                            <td class="num-col">${moles.toFixed(4)} mol</td>
-                            <td class="num-col">${mass.toFixed(2)} g</td>
+                            <td class="num-col">${moles.toFixed(4)}</td>
+                            <td class="num-col">${mass.toFixed(2)}g</td>
                             <td class="num-col">${volOrConc}</td>
                           </tr>
                         `;
                       })
                       .join('')}
                   </tbody>
-                </table>
-              </div>`
-        }
-      </div>
+                </table>`
+          }
+        </div>
 
-      <div class="inspector-actions">
-        <button type="button" class="insp-btn insp-btn-ignite" id="insp-btn-ignite">⚡ Spark</button>
-        <button type="button" class="insp-btn insp-btn-heat" id="insp-btn-heat">🔥 +5 kJ</button>
-        ${
-          otherVessels.length > 0
-            ? `<button type="button" class="insp-btn" id="insp-btn-transfer" title="Pour 25 mL into ${this.escapeHtml(otherVessels[0].label)}">
-                ⇄ Pour → ${this.escapeHtml(otherVessels[0].label.split(' ')[0])}
-              </button>`
-            : ''
-        }
-        <button type="button" class="insp-btn insp-btn-muted" id="insp-btn-rinse">💧 Rinse</button>
+        <div class="inspector-actions">
+          <button type="button" class="insp-btn insp-btn-ignite" id="insp-btn-ignite">⚡ Spark</button>
+          <button type="button" class="insp-btn insp-btn-heat" id="insp-btn-heat">🔥 +5 kJ</button>
+          ${
+            otherVessels.length > 0
+              ? `<button type="button" class="insp-btn" id="insp-btn-transfer" title="Pour 25 mL into ${this.escapeHtml(otherVessels[0].label)}">
+                  ⇄ Pour
+                </button>`
+              : ''
+          }
+          <button type="button" class="insp-btn insp-btn-muted" id="insp-btn-rinse">💧 Rinse</button>
+        </div>
       </div>
     `;
 
     this.inspectorContainer.querySelector('#btn-toggle-stopper')?.addEventListener('click', () => {
       this.bench.toggleVesselStopper(vessel);
+    });
+    this.inspectorContainer.querySelector('#btn-collapse-insp')?.addEventListener('click', () => {
+      this.inspectorCollapsed = !this.inspectorCollapsed;
+      this.updateInspector(vessel);
+    });
+    this.inspectorContainer.querySelector('#insp-btn-restore')?.addEventListener('click', () => {
+      this.bench.rinseVessel(vessel);
     });
     this.inspectorContainer.querySelector('#insp-btn-ignite')?.addEventListener('click', () => {
       this.bench.igniteVessel(vessel);
@@ -628,56 +666,28 @@ export class ToolbarAndInspectorUI {
     }, 4200);
   }
 
-  private runScenarioPreset(preset: string): void {
-    const vessel = this.bench.getSelectedVessel();
-    if (!vessel) return;
-
-    this.clearWarningBanner();
-    this.bench.rinseVessel(vessel);
-
-    if (preset === 'make_water') {
-      this.bench.toggleVesselStopper(vessel, true);
-      this.bench.pourIntoVessel(vessel, 'H2', 2.0, 'mol');
-      this.bench.pourIntoVessel(vessel, 'O2', 1.0, 'mol');
-      this.showNotice(
-        'Loaded 2 mol H₂ + 1 mol O₂ in stoppered vessel. Click "⚡ Spark / Ignite" to synthesize 2 mol H₂O!',
-        'info'
-      );
-    } else if (preset === 'neutralize') {
-      this.bench.pourIntoVessel(vessel, 'HCl', 50, 'mL', { molarity: 1.0 });
-      this.bench.pourIntoVessel(vessel, 'NaOH', 50, 'mL', { molarity: 1.0 });
-      this.showNotice('Mixed 50 mL 1.0M HCl + 50 mL 1.0M NaOH → Neutralized to NaCl + H₂O (pH 7.00)!', 'info');
-    } else if (preset === 'heat_gas') {
-      this.bench.toggleVesselStopper(vessel, true);
-      this.bench.pourIntoVessel(vessel, 'N2', 2.5, 'mol');
-      this.bench.heatVessel(65000, vessel);
-    } else if (preset === 'hazard_na') {
-      this.bench.pourIntoVessel(vessel, 'H2O', 80, 'mL');
-      this.bench.pourIntoVessel(vessel, 'Na', 3.0, 'g');
-    } else if (preset === 'hazard_chloramine') {
-      this.bench.pourIntoVessel(vessel, 'NaOCl', 40, 'mL', { molarity: 1.0 });
-      this.bench.pourIntoVessel(vessel, 'NH3(aq)', 40, 'mL', { molarity: 1.0 });
-    }
-  }
-
   private getEquipmentSvgIcon(type: string): string {
     switch (type) {
       case 'beaker':
-        return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h14l-1 15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 4z"/><path d="M6 12h12"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M5 4h14l-1 15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 4z" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/><path d="M6 12h12" stroke="#38bdf8" stroke-width="1.5"/></svg>`;
       case 'flask':
-        return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6m-5 0v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M9 3h6m-5 0v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
       case 'test_tube':
-        return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3h8m-7 0v14a3 3 0 0 0 6 0V3"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M8 3h8m-7 0v14a3 3 0 0 0 6 0V3" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
+      case 'gas_jar':
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="6" y="4" width="12" height="17" rx="2" fill="rgba(56,189,248,0.18)" stroke="#38bdf8" stroke-width="2"/><path d="M4 4h16" stroke="#e2e8f0" stroke-width="2"/></svg>`;
+      case 'stopper':
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M6 7h12l-1.5 10h-9L6 7z" fill="rgba(251,146,60,0.28)" stroke="#fb923c" stroke-width="1.8"/><path d="M4 7h16" stroke="#fdba74" stroke-width="2"/></svg>`;
       case 'burner':
-        return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3c2 3 4 5 4 8a4 4 0 0 1-8 0c0-3 2-5 4-8z"/><path d="M7 21h10m-5-6v6"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M12 3c2 3 4 5 4 8a4 4 0 0 1-8 0c0-3 2-5 4-8z" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1.8"/><path d="M7 21h10m-5-6v6" stroke="#94a3b8" stroke-width="1.8"/></svg>`;
       case 'scale':
-        return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="12" width="18" height="8" rx="2"/><path d="M6 8h12m-6 0v4"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="3" y="12" width="18" height="8" rx="2" fill="rgba(34,211,238,0.14)" stroke="#22d3ee" stroke-width="1.8"/><path d="M6 8h12m-6 0v4" stroke="#e2e8f0" stroke-width="1.8"/></svg>`;
       case 'thermometer':
-        return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z" fill="rgba(244,63,94,0.22)" stroke="#fb7185" stroke-width="1.8"/></svg>`;
       case 'ph_meter':
-        return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="3" width="12" height="7" rx="1.5"/><path d="M12 10v11"/><circle cx="12" cy="19" r="2"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="6" y="3" width="12" height="7" rx="1.5" fill="rgba(16,185,129,0.2)" stroke="#34d399" stroke-width="1.8"/><path d="M12 10v11" stroke="#cbd5e1" stroke-width="1.8"/><circle cx="12" cy="19" r="2" fill="#34d399"/></svg>`;
       default:
-        return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 3h2v6l2 10-3 2-3-2 2-10V3z"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M11 3h2v6l2 10-3 2-3-2 2-10V3z" fill="rgba(34,211,238,0.18)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
     }
   }
 
