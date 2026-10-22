@@ -50,6 +50,9 @@ export class LabBench {
 
   private width = 880;
   private height = 460;
+  private sampleAccumSec = 0;
+  private dirty = true;
+  private frameCounter = 0;
   private draggingItem: BenchItem | null = null;
   private dragOffsetX = 0;
   private dragOffsetY = 0;
@@ -91,6 +94,7 @@ export class LabBench {
 
     this.items.push(scale, burner, beaker1, flask1, gasJar1, tube1, phMeter, thermometer);
     this.selectedVesselId = beaker1.id;
+    this.dirty = true;
     this.callbacks.onSelectVessel(beaker1);
   }
 
@@ -113,6 +117,7 @@ export class LabBench {
 
   public selectVessel(vesselId: string | null): void {
     this.selectedVesselId = vesselId;
+    this.dirty = true;
     this.callbacks.onSelectVessel(this.getSelectedVessel());
   }
 
@@ -163,11 +168,13 @@ export class LabBench {
       );
       this.items.push(vessel);
       this.selectVessel(vessel.id);
+      this.dirty = true;
       this.callbacks.onLogEvent('equipment', `Placed ${vessel.label} on the bench`, vessel);
       return vessel;
     } else {
       const tool = createTool(type, x, this.getBenchSurfaceY() - 112);
       this.items.push(tool);
+      this.dirty = true;
       this.callbacks.onLogEvent('equipment', `Placed ${tool.label} on the bench`);
       return tool;
     }
@@ -178,6 +185,7 @@ export class LabBench {
     if (idx >= 0) {
       const removed = this.items[idx];
       this.items.splice(idx, 1);
+      this.dirty = true;
       this.callbacks.onLogEvent('equipment', `Removed ${removed.label} from the bench`);
       if (this.selectedVesselId === vesselId) {
         const next = this.getVessels()[0] ?? null;
@@ -188,6 +196,7 @@ export class LabBench {
 
   public rinseVessel(vessel: LabVessel): void {
     resetVesselState(vessel);
+    this.dirty = true;
     this.callbacks.onLogEvent('rinse', `Rinsed and restored ${vessel.label}`, vessel);
     this.callbacks.onNotice(`Rinsed ${vessel.label} (25.0 °C, empty).`, 'info');
     this.callbacks.onSelectVessel(vessel);
@@ -200,6 +209,7 @@ export class LabBench {
     }
     vessel.closed = closed ?? !vessel.closed;
     vessel.simulator.closed = vessel.closed;
+    this.dirty = true;
     this.callbacks.onLogEvent(
       'stopper',
       `${vessel.closed ? 'Stoppered (sealed)' : 'Unstoppered (open)'} ${vessel.label}`,
@@ -252,6 +262,7 @@ export class LabBench {
       this.callbacks.onLogEvent('pour', res.message, vessel);
     }
 
+    this.dirty = true;
     this.stepVesselSimulation(vessel, 0.05);
     this.callbacks.onSelectVessel(vessel);
     return res;
@@ -267,6 +278,7 @@ export class LabBench {
       this.callbacks.onNotice(`${target.label} is shattered. Reset bench first.`, 'warn');
       return;
     }
+    this.dirty = true;
     target.simulator.ignite();
     this.effects.triggerIgnitionFlare(target, true);
     this.callbacks.onLogEvent('ignite', `Applied ignition spark to ${target.label}`, target);
@@ -284,6 +296,7 @@ export class LabBench {
       this.callbacks.onNotice(`${target.label} is shattered. Reset bench first.`, 'warn');
       return;
     }
+    this.dirty = true;
     target.simulator.heat(joules);
     if (logAction) {
       this.callbacks.onLogEvent(
@@ -314,6 +327,7 @@ export class LabBench {
     } else {
       this.callbacks.onNotice(res.message, 'info');
     }
+    this.dirty = true;
     this.callbacks.onLogEvent('transfer', res.message, target);
     this.stepVesselSimulation(target, 0.1);
     this.selectVessel(target.id);
@@ -372,15 +386,16 @@ export class LabBench {
 
   public tick(dtRealSeconds: number): void {
     this.animTimeSec += dtRealSeconds;
+    this.frameCounter++;
+
+    const burners = this.getTools().filter((t) => t.toolType === 'burner' && t.active);
+    const vessels = this.getVessels();
 
     if (!this.paused) {
       const simDt = Math.min(0.2, dtRealSeconds) * this.speedMultiplier;
       this.simElapsedSeconds += simDt;
 
       // Active burners heat vessels positioned directly above or near them
-      const burners = this.getTools().filter((t) => t.toolType === 'burner' && t.active);
-      const vessels = this.getVessels();
-
       for (const burner of burners) {
         const bCx = burner.x + burner.width * 0.5;
         const bTop = burner.y;
@@ -390,6 +405,7 @@ export class LabBench {
           const vBottom = v.y + v.height;
           if (Math.abs(vCx - bCx) < 88 && Math.abs(vBottom - bTop) < 125) {
             v.simulator.heat(burner.powerWatts * simDt);
+            this.dirty = true;
           }
         }
       }
@@ -400,11 +416,28 @@ export class LabBench {
         }
       }
 
-      this.callbacks.onSimSample(this.simElapsedSeconds, this.getSelectedVessel());
+      this.sampleAccumSec += dtRealSeconds;
+      if (this.sampleAccumSec >= 0.2) {
+        this.sampleAccumSec = 0;
+        this.callbacks.onSimSample(this.simElapsedSeconds, this.getSelectedVessel());
+      }
     }
 
-    this.effects.update(dtRealSeconds, this.getVessels());
-    this.render();
+    const hadEffects = this.effects.hasActiveEffects();
+    this.effects.update(dtRealSeconds, vessels);
+    const hasEffects = this.effects.hasActiveEffects();
+    const hasLiquidWave = vessels.some((v) => !v.burst && v.mixture.volumeL > 0.002);
+
+    if (
+      this.dirty ||
+      hasEffects ||
+      hadEffects ||
+      burners.length > 0 ||
+      (hasLiquidWave && this.frameCounter % 3 === 0)
+    ) {
+      this.dirty = false;
+      this.render();
+    }
   }
 
   private stepVesselSimulation(vessel: LabVessel, simDt: number): void {
@@ -416,6 +449,7 @@ export class LabBench {
     const result = stepVesselPhysics(vessel, simDt);
 
     if (result.reactionsFired.length > 0) {
+      this.dirty = true;
       for (const rxnId of result.reactionsFired) {
         const rxn = REACTIONS.find((r) => r.id === rxnId);
         const eqStr = formatReactionEquation(rxn ?? rxnId);
@@ -465,6 +499,7 @@ export class LabBench {
     }
 
     if (result.hazards.length > 0) {
+      this.dirty = true;
       const isBurst = result.hazards.includes('burst');
       const isExplosive = result.hazards.includes('explosive') || isBurst;
       if (isExplosive) {
@@ -495,13 +530,13 @@ export class LabBench {
     const parent = this.canvas.parentElement;
     if (!parent) return;
     const rect = parent.getBoundingClientRect();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.width = Math.max(520, Math.floor(rect.width));
     this.height = Math.max(300, Math.floor(rect.height));
 
-    this.canvas.width = Math.floor(this.width * dpr);
-    this.canvas.height = Math.floor(this.height * dpr);
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.canvas.width = this.width;
+    this.canvas.height = this.height;
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.dirty = true;
 
     const surfaceY = this.getBenchSurfaceY();
     for (const item of this.items) {
@@ -545,10 +580,11 @@ export class LabBench {
         return;
       }
 
-      if (Math.hypot(x - this.dragStartX, y - this.dragStartY) > 5) {
+      if ( Math.hypot(x - this.dragStartX, y - this.dragStartY) > 5) {
         this.pointerDownMoved = true;
       }
 
+      this.dirty = true;
       this.canvas.style.cursor = 'grabbing';
       const surfaceY = this.getBenchSurfaceY();
       this.draggingItem.x = Math.max(
@@ -582,6 +618,7 @@ export class LabBench {
 
       if (!this.pointerDownMoved && item.kind === 'tool' && item.toolType === 'burner') {
         item.active = !item.active;
+        this.dirty = true;
         this.callbacks.onLogEvent(
           'burner',
           `Turned Bunsen Burner ${item.active ? 'ON' : 'OFF'}`
@@ -688,43 +725,26 @@ export class LabBench {
       ctx.translate(this.effects.shakeOffsetX, this.effects.shakeOffsetY);
     }
 
-    // 1. Dark Instrument-Panel Back Wall + Overhead Spotlight
-    const wallGrad = ctx.createLinearGradient(0, 0, 0, surfaceY);
-    wallGrad.addColorStop(0, '#090d15');
-    wallGrad.addColorStop(0.65, '#0f1623');
-    wallGrad.addColorStop(1, '#141d2e');
-    ctx.fillStyle = wallGrad;
+    // 1. Dark Instrument-Panel Back Wall + Subtle Grid
+    ctx.fillStyle = '#0d1420';
     ctx.fillRect(0, 0, w, surfaceY);
 
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.045)';
     ctx.lineWidth = 1;
     const gridStep = 40;
+    ctx.beginPath();
     for (let gx = 0; gx < w; gx += gridStep) {
-      ctx.beginPath();
       ctx.moveTo(gx, 0);
       ctx.lineTo(gx, surfaceY);
-      ctx.stroke();
     }
     for (let gy = 0; gy < surfaceY; gy += gridStep) {
-      ctx.beginPath();
       ctx.moveTo(0, gy);
       ctx.lineTo(w, gy);
-      ctx.stroke();
     }
-
-    const spotGrad = ctx.createRadialGradient(w * 0.48, 20, 10, w * 0.48, surfaceY * 0.65, w * 0.6);
-    spotGrad.addColorStop(0, 'rgba(34, 211, 238, 0.065)');
-    spotGrad.addColorStop(0.6, 'rgba(15, 23, 42, 0.02)');
-    spotGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = spotGrad;
-    ctx.fillRect(0, 0, w, surfaceY);
+    ctx.stroke();
 
     // 2. Brushed Steel Backsplash & Wooden Lab Bench Surface
-    const railGrad = ctx.createLinearGradient(0, surfaceY - 14, 0, surfaceY);
-    railGrad.addColorStop(0, '#1e293b');
-    railGrad.addColorStop(0.5, '#334155');
-    railGrad.addColorStop(1, '#0f172a');
-    ctx.fillStyle = railGrad;
+    ctx.fillStyle = '#263346';
     ctx.fillRect(0, surfaceY - 12, w, 12);
 
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
@@ -733,41 +753,26 @@ export class LabBench {
     ctx.lineTo(w, surfaceY - 12);
     ctx.stroke();
 
-    const woodGrad = ctx.createLinearGradient(0, surfaceY, 0, h);
-    woodGrad.addColorStop(0, '#3b2618');
-    woodGrad.addColorStop(0.18, '#4a3020');
-    woodGrad.addColorStop(0.55, '#362215');
-    woodGrad.addColorStop(0.66, '#24150c');
-    woodGrad.addColorStop(0.7, '#1b2432');
-    woodGrad.addColorStop(1, '#0b1019');
-    ctx.fillStyle = woodGrad;
-    ctx.fillRect(0, surfaceY, w, h - surfaceY);
-
     const benchFrontEdgeY = surfaceY + Math.min(72, (h - surfaceY) * 0.64);
+    ctx.fillStyle = '#3d2719';
+    ctx.fillRect(0, surfaceY, w, benchFrontEdgeY - surfaceY);
+
+    ctx.fillStyle = '#131b27';
+    ctx.fillRect(0, benchFrontEdgeY, w, h - benchFrontEdgeY);
+
     ctx.strokeStyle = 'rgba(15, 8, 4, 0.35)';
     ctx.lineWidth = 1;
     const plankCount = 4;
+    ctx.beginPath();
     for (let p = 1; p < plankCount; p++) {
       const py = surfaceY + ((benchFrontEdgeY - surfaceY) * p) / plankCount;
-      ctx.beginPath();
       ctx.moveTo(0, py);
       ctx.lineTo(w, py);
-      ctx.stroke();
     }
+    ctx.stroke();
 
-    const sheenGrad = ctx.createLinearGradient(0, surfaceY, w, benchFrontEdgeY);
-    sheenGrad.addColorStop(0, 'rgba(255, 255, 255, 0.02)');
-    sheenGrad.addColorStop(0.45, 'rgba(255, 248, 235, 0.065)');
-    sheenGrad.addColorStop(1, 'rgba(255, 255, 255, 0.015)');
-    ctx.fillStyle = sheenGrad;
-    ctx.fillRect(0, surfaceY, w, benchFrontEdgeY - surfaceY);
-
-    const edgeGrad = ctx.createLinearGradient(0, benchFrontEdgeY - 4, 0, benchFrontEdgeY + 6);
-    edgeGrad.addColorStop(0, '#64748b');
-    edgeGrad.addColorStop(0.4, '#94a3b8');
-    edgeGrad.addColorStop(1, '#1e293b');
-    ctx.fillStyle = edgeGrad;
-    ctx.fillRect(0, benchFrontEdgeY - 3, w, 8);
+    ctx.fillStyle = '#64748b';
+    ctx.fillRect(0, benchFrontEdgeY - 3, w, 6);
 
     // 3. Render Tools and Vessels
     const backgroundTools = this.getTools().filter(
@@ -887,53 +892,56 @@ export class LabBench {
     const liquidHeight = fillRatio * usableHeight;
     const liquidTopY = innerBottomY - liquidHeight;
 
-    ctx.save();
-    this.traceVesselPath(ctx, vessel, true);
-    ctx.clip();
+    const topBounds = this.getVesselHorizontalBoundsAtY(vessel, liquidTopY);
+    const botBounds = this.getVesselHorizontalBoundsAtY(vessel, innerBottomY);
 
     // Headspace gas tint
     const gasInfo = getHeadspaceGasInfo(vessel.mixture);
     if (gasInfo.moles > 0) {
+      this.traceVesselPath(ctx, vessel, true);
       ctx.fillStyle = gasInfo.color;
-      ctx.fillRect(x, innerTopY, w, usableHeight);
+      ctx.fill();
     }
 
     // Wall condensation droplets when water was synthesized or mixture is warm
     if ((vessel.lastReactionsFired.includes('h2_o2_water') || vessel.mixture.tempK > 325) && vessel.mixture.moles.H2O) {
       ctx.fillStyle = 'rgba(186, 230, 253, 0.55)';
-      for (let d = 0; d < 14; d++) {
-        const dx = x + 16 + ((d * 23) % Math.max(20, w - 32));
+      for (let d = 0; d < 12; d++) {
         const dy = innerTopY + 14 + ((d * 19) % Math.max(20, usableHeight * 0.65));
+        const b = this.getVesselHorizontalBoundsAtY(vessel, dy);
+        const span = Math.max(12, b.right - b.left - 8);
+        const dx = b.left + 4 + ((d * 23) % span);
         ctx.beginPath();
         ctx.arc(dx, dy, 1.8 + (d % 2) * 0.7, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    // Liquid body with animated wave meniscus
+    // Liquid body with animated wave meniscus (geometric bounds, no expensive stencil clip)
     if (fillRatio > 0.002) {
       const liquidColor = blendMixtureColor(vessel.mixture);
       ctx.fillStyle = liquidColor;
       ctx.beginPath();
-      const waveAmp = Math.min(2.8, 0.8 + (vessel.mixture.tempK > 350 ? 2.0 : 0.6));
-      const steps = 16;
-      ctx.moveTo(x, innerBottomY + 10);
-      ctx.lineTo(x, liquidTopY);
+      const waveAmp = Math.min(2.6, 0.7 + (vessel.mixture.tempK > 350 ? 1.8 : 0.5));
+      const steps = 12;
+      const topSpan = topBounds.right - topBounds.left;
+      ctx.moveTo(botBounds.left, innerBottomY);
+      ctx.lineTo(topBounds.left, liquidTopY);
       for (let i = 0; i <= steps; i++) {
-        const px = x + (w * i) / steps;
+        const px = topBounds.left + (topSpan * i) / steps;
         const wy =
           liquidTopY +
           Math.sin((i / steps) * Math.PI * 2 + this.animTimeSec * 4.2) * waveAmp;
         ctx.lineTo(px, wy);
       }
-      ctx.lineTo(x + w, innerBottomY + 10);
+      ctx.lineTo(botBounds.right, innerBottomY);
       ctx.closePath();
       ctx.fill();
 
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.ellipse(x + w * 0.5, liquidTopY, w * 0.42, 3.2, 0, 0, Math.PI * 2);
+      ctx.ellipse(x + w * 0.5, liquidTopY, Math.max(6, topSpan * 0.46), 2.8, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -941,12 +949,13 @@ export class LabBench {
     const precip = getPrecipitateInfo(vessel.mixture);
     if (precip.massG > 0.001) {
       const sedHeight = Math.min(usableHeight * 0.28, 5 + Math.log10(1 + precip.massG * 6) * 9);
+      const botSpan = botBounds.right - botBounds.left;
       ctx.fillStyle = precip.color;
       ctx.beginPath();
       ctx.ellipse(
         x + w * 0.5,
         innerBottomY - sedHeight * 0.35,
-        w * 0.42,
+        Math.max(8, botSpan * 0.45),
         sedHeight,
         0,
         0,
@@ -956,19 +965,13 @@ export class LabBench {
     }
 
     this.effects.renderVesselInternalEffects(ctx, vessel, liquidTopY, innerBottomY);
-    ctx.restore();
 
     if (vesselType === 'test_tube') {
       this.renderTestTubeRack(ctx, vessel);
     }
 
     this.traceVesselPath(ctx, vessel, false);
-    const glassFill = ctx.createLinearGradient(x, y, x + w, y);
-    glassFill.addColorStop(0, 'rgba(255, 255, 255, 0.14)');
-    glassFill.addColorStop(0.2, 'rgba(255, 255, 255, 0.03)');
-    glassFill.addColorStop(0.82, 'rgba(255, 255, 255, 0.02)');
-    glassFill.addColorStop(1, 'rgba(186, 230, 253, 0.16)');
-    ctx.fillStyle = glassFill;
+    ctx.fillStyle = 'rgba(205, 235, 255, 0.055)';
     ctx.fill();
 
     ctx.strokeStyle = isSelected
@@ -1020,6 +1023,36 @@ export class LabBench {
     this.renderVesselBadge(ctx, vessel, isSelected);
 
     ctx.restore();
+  }
+
+  private getVesselHorizontalBoundsAtY(
+    vessel: LabVessel,
+    yPos: number
+  ): { left: number; right: number } {
+    const { x, y, width: w, height: h, vesselType } = vessel;
+    if (vesselType === 'beaker') {
+      return { left: x + 8, right: x + w - 8 };
+    }
+    if (vesselType === 'gas_jar') {
+      return { left: x + 10, right: x + w - 10 };
+    }
+    if (vesselType === 'test_tube') {
+      const cx = x + w * 0.5;
+      const half = w * 0.23 - 2;
+      return { left: cx - half, right: cx + half };
+    }
+    // flask (Erlenmeyer cone)
+    const cx = x + w * 0.5;
+    const neckHalf = w * 0.16 - 2;
+    const baseHalf = w * 0.45 - 3;
+    const neckBottom = y + h * 0.36;
+    const bottom = y + h - 8;
+    if (yPos <= neckBottom) {
+      return { left: cx - neckHalf, right: cx + neckHalf };
+    }
+    const t = Math.max(0, Math.min(1, (yPos - neckBottom) / Math.max(1, bottom - neckBottom)));
+    const half = neckHalf + t * (baseHalf - neckHalf);
+    return { left: cx - half, right: cx + half };
   }
 
   private traceVesselPath(
@@ -1200,11 +1233,28 @@ export class LabBench {
         vessel.mixture.volumeL > 0 && vessel.mixture.volumeL < 0.001
           ? (vessel.mixture.volumeL * 1000).toFixed(2)
           : (vessel.mixture.volumeL * 1000).toFixed(0);
-      const hasContents = Object.keys(vessel.mixture.moles).length > 0;
-      const phVal = hasContents ? pH(vessel.mixture).toFixed(1) : '7.0';
+      const phVal = this.getCachedPh(vessel).toFixed(1);
       ctx.fillText(`${volML}mL · ${tempC}°C · pH ${phVal}`, cx, badgeY + 26);
     }
     ctx.restore();
+  }
+
+  public getCachedPh(vessel: LabVessel): number {
+    const keys = Object.keys(vessel.mixture.moles);
+    if (keys.length === 0) return 7.0;
+    let sig = `${vessel.mixture.volumeL.toFixed(6)}:`;
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      sig += `${k}=${(vessel.mixture.moles[k] ?? 0).toFixed(6)},`;
+    }
+    const cache = vessel as LabVessel & { _phSig?: string; _phVal?: number };
+    if (cache._phSig === sig && cache._phVal !== undefined) {
+      return cache._phVal;
+    }
+    const computed = pH(vessel.mixture);
+    cache._phSig = sig;
+    cache._phVal = computed;
+    return computed;
   }
 
   private renderTool(ctx: CanvasRenderingContext2D, tool: LabTool): void {
@@ -1220,11 +1270,7 @@ export class LabBench {
         this.effects.renderBurnerFlame(ctx, cx, nozzleTopY, this.animTimeSec);
       }
 
-      const baseGrad = ctx.createLinearGradient(x + 12, bottomY - 14, x + w - 12, bottomY);
-      baseGrad.addColorStop(0, '#334155');
-      baseGrad.addColorStop(0.5, '#64748b');
-      baseGrad.addColorStop(1, '#1e293b');
-      ctx.fillStyle = baseGrad;
+      ctx.fillStyle = '#475569';
       ctx.beginPath();
       ctx.roundRect(x + 14, bottomY - 12, w - 28, 12, 4);
       ctx.fill();
@@ -1312,8 +1358,7 @@ export class LabBench {
       ctx.fillText(`${tempK.toFixed(1)}K`, x + w * 0.5, y + 33);
     } else if (toolType === 'ph_meter') {
       const target = this.findNearestVessel(x + w * 0.5, y + h * 0.5) ?? this.getSelectedVessel();
-      const hasContents = target && Object.keys(target.mixture.moles).length > 0;
-      const val = hasContents && target ? pH(target.mixture) : 7.0;
+      const val = target ? this.getCachedPh(target) : 7.0;
       const phColor = val < 6.5 ? '#f43f5e' : val > 7.5 ? '#38bdf8' : '#10b981';
 
       ctx.fillStyle = '#0f172a';

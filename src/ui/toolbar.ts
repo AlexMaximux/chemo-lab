@@ -36,6 +36,7 @@ export class ToolbarAndInspectorUI {
   private chemGridEl!: HTMLElement;
   private chemCountBadgeEl!: HTMLElement;
   private simClockEl!: HTMLElement;
+  private lastClockText = '0.0s';
 
   constructor(bench: LabBench) {
     this.bench = bench;
@@ -441,7 +442,11 @@ export class ToolbarAndInspectorUI {
 
   public updateSimClock(simSeconds: number): void {
     if (this.simClockEl) {
-      this.simClockEl.textContent = `${simSeconds.toFixed(1)}s`;
+      const next = `${Math.floor(simSeconds)}.0s`;
+      if (next !== this.lastClockText) {
+        this.lastClockText = next;
+        this.simClockEl.textContent = next;
+      }
     }
   }
 

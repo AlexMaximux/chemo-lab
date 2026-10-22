@@ -53,6 +53,14 @@ export class LiveTelemetryGraphs {
   private readonly phCanvas: HTMLCanvasElement;
   private readonly tempReadoutEl: HTMLElement | null;
   private readonly phReadoutEl: HTMLElement | null;
+  private tempSvgEl: SVGSVGElement | null = null;
+  private phSvgEl: SVGSVGElement | null = null;
+
+  private lastTempText = '';
+  private lastPhText = '';
+  private lastRenderedTempK = Number.NaN;
+  private lastRenderedPh = Number.NaN;
+  private renderedSampleCount = 0;
 
   constructor(
     tempCanvas: HTMLCanvasElement,
@@ -64,45 +72,85 @@ export class LiveTelemetryGraphs {
     this.phCanvas = phCanvas;
     this.tempReadoutEl = tempReadoutEl ?? null;
     this.phReadoutEl = phReadoutEl ?? null;
+    this.mountSvgOverlays();
   }
 
-  public sample(simTime: number, tempK: number, phVal: number): void {
+  private mountSvgOverlays(): void {
+    if (typeof document === 'undefined') return;
+    this.tempSvgEl = this.createSvgOverlayForCanvas(this.tempCanvas);
+    this.phSvgEl = this.createSvgOverlayForCanvas(this.phCanvas);
+  }
+
+  private createSvgOverlayForCanvas(canvas: HTMLCanvasElement): SVGSVGElement | null {
+    const parent = canvas.parentElement;
+    if (!parent) return null;
+    canvas.style.display = 'none';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 280 62');
+    svg.setAttribute('class', 'graph-canvas');
+    svg.style.width = '100%';
+    svg.style.height = '62px';
+    svg.style.display = 'block';
+    parent.appendChild(svg);
+    return svg;
+  }
+
+  public sample(simTime: number, tempK: number, phVal: number, forceRender = false): void {
     this.sampler.record(simTime, tempK, phVal);
-    if (this.tempReadoutEl) {
-      this.tempReadoutEl.textContent = `${(tempK - 273.15).toFixed(1)} °C`;
+
+    const tempStr = `${(tempK - 273.15).toFixed(1)} °C`;
+    if (this.tempReadoutEl && tempStr !== this.lastTempText) {
+      this.lastTempText = tempStr;
+      this.tempReadoutEl.textContent = tempStr;
     }
-    if (this.phReadoutEl) {
-      this.phReadoutEl.textContent = `pH ${phVal.toFixed(2)}`;
+
+    const phStr = `pH ${phVal.toFixed(2)}`;
+    if (this.phReadoutEl && phStr !== this.lastPhText) {
+      this.lastPhText = phStr;
+      this.phReadoutEl.textContent = phStr;
     }
-    this.render();
+
+    const tempChanged =
+      Number.isNaN(this.lastRenderedTempK) || Math.abs(tempK - this.lastRenderedTempK) > 0.05;
+    const phChanged =
+      Number.isNaN(this.lastRenderedPh) || Math.abs(phVal - this.lastRenderedPh) > 0.01;
+    const needsInitialPlot = this.renderedSampleCount < 2 && this.sampler.getPoints().length >= 2;
+
+    if (forceRender || tempChanged || phChanged || needsInitialPlot) {
+      this.lastRenderedTempK = tempK;
+      this.lastRenderedPh = phVal;
+      this.renderedSampleCount = this.sampler.getPoints().length;
+      this.render();
+    }
   }
 
   public reset(): void {
     this.sampler.clear();
+    this.lastRenderedTempK = Number.NaN;
+    this.lastRenderedPh = Number.NaN;
+    this.renderedSampleCount = 0;
     this.render();
   }
 
   public render(): void {
     const pts = this.sampler.getPoints();
-    this.drawChart(
-      this.tempCanvas,
+    this.drawSvgChart(
+      this.tempSvgEl,
       pts.map((p) => ({ t: p.simTime, v: p.tempC })),
       {
         strokeColor: '#fb923c',
-        fillTop: 'rgba(251, 146, 60, 0.28)',
-        fillBottom: 'rgba(251, 146, 60, 0.0)',
+        fillColor: 'rgba(251, 146, 60, 0.18)',
         minRange: [15, 45],
         unit: '°C',
       }
     );
 
-    this.drawChart(
-      this.phCanvas,
+    this.drawSvgChart(
+      this.phSvgEl,
       pts.map((p) => ({ t: p.simTime, v: p.pH })),
       {
         strokeColor: '#22d3ee',
-        fillTop: 'rgba(34, 211, 238, 0.25)',
-        fillBottom: 'rgba(34, 211, 238, 0.0)',
+        fillColor: 'rgba(34, 211, 238, 0.16)',
         fixedRange: [0, 14],
         referenceLine: 7.0,
         unit: '',
@@ -110,44 +158,28 @@ export class LiveTelemetryGraphs {
     );
   }
 
-  private drawChart(
-    canvas: HTMLCanvasElement,
+  private drawSvgChart(
+    svg: SVGSVGElement | null,
     data: Array<{ t: number; v: number }>,
     opts: {
       strokeColor: string;
-      fillTop: string;
-      fillBottom: string;
+      fillColor: string;
       minRange?: [number, number];
       fixedRange?: [number, number];
       referenceLine?: number;
       unit: string;
     }
   ): void {
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const rect = canvas.getBoundingClientRect();
-    const w = Math.max(220, Math.floor(rect.width || 280));
-    const h = Math.max(64, Math.floor(rect.height || 82));
-
-    if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
-      canvas.width = Math.floor(w * dpr);
-      canvas.height = Math.floor(h * dpr);
-    }
-
-    ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
+    if (!svg) return;
+    const w = 280;
+    const h = 62;
     const padLeft = 32;
     const padRight = 8;
-    const padTop = 8;
-    const padBottom = 14;
+    const padTop = 7;
+    const padBottom = 11;
     const plotW = w - padLeft - padRight;
     const plotH = h - padTop - padBottom;
 
-    // Determine Y bounds
     let yMin = opts.fixedRange ? opts.fixedRange[0] : opts.minRange ? opts.minRange[0] : 0;
     let yMax = opts.fixedRange ? opts.fixedRange[1] : opts.minRange ? opts.minRange[1] : 100;
 
@@ -159,33 +191,21 @@ export class LiveTelemetryGraphs {
     }
     const ySpan = Math.max(1e-3, yMax - yMin);
 
-    // Subtle horizontal grid lines
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.1)';
-    ctx.lineWidth = 1;
+    const parts: string[] = [];
     for (let i = 0; i <= 2; i++) {
-      const gy = padTop + (plotH * i) / 2;
-      ctx.beginPath();
-      ctx.moveTo(padLeft, gy);
-      ctx.lineTo(w - padRight, gy);
-      ctx.stroke();
-
-      const labelVal = yMax - (ySpan * i) / 2;
-      ctx.fillStyle = '#64748b';
-      ctx.font = '500 8.5px "JetBrains Mono", monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`${labelVal.toFixed(0)}${opts.unit}`, padLeft - 4, gy + 3);
+      const gy = (padTop + (plotH * i) / 2).toFixed(1);
+      const labelVal = (yMax - (ySpan * i) / 2).toFixed(0);
+      parts.push(
+        `<line x1="${padLeft}" y1="${gy}" x2="${w - padRight}" y2="${gy}" stroke="rgba(148,163,184,0.12)" stroke-width="1"/>`,
+        `<text x="${padLeft - 4}" y="${Number(gy) + 3}" fill="#64748b" font-family="JetBrains Mono, monospace" font-size="8.5" text-anchor="end">${labelVal}${opts.unit}</text>`
+      );
     }
 
-    // Optional reference line (e.g. pH 7.0 neutral line)
     if (opts.referenceLine !== undefined) {
-      const ry = padTop + plotH * (1 - (opts.referenceLine - yMin) / ySpan);
-      ctx.strokeStyle = 'rgba(16, 185, 129, 0.35)';
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.moveTo(padLeft, ry);
-      ctx.lineTo(w - padRight, ry);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      const ry = (padTop + plotH * (1 - (opts.referenceLine - yMin) / ySpan)).toFixed(1);
+      parts.push(
+        `<line x1="${padLeft}" y1="${ry}" x2="${w - padRight}" y2="${ry}" stroke="rgba(16,185,129,0.35)" stroke-width="1" stroke-dasharray="3 3"/>`
+      );
     }
 
     if (data.length >= 2) {
@@ -197,41 +217,20 @@ export class LiveTelemetryGraphs {
       const toY = (v: number) =>
         padTop + Math.max(0, Math.min(plotH, plotH * (1 - (v - yMin) / ySpan)));
 
-      // Area fill under curve
-      const areaGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
-      areaGrad.addColorStop(0, opts.fillTop);
-      areaGrad.addColorStop(1, opts.fillBottom);
-      ctx.fillStyle = areaGrad;
-      ctx.beginPath();
-      ctx.moveTo(toX(data[0].t), padTop + plotH);
-      for (const pt of data) {
-        ctx.lineTo(toX(pt.t), toY(pt.v));
-      }
-      ctx.lineTo(toX(data[data.length - 1].t), padTop + plotH);
-      ctx.closePath();
-      ctx.fill();
+      const lineCoords = data.map((pt) => `${toX(pt.t).toFixed(1)},${toY(pt.v).toFixed(1)}`).join(' ');
+      const firstX = toX(data[0].t).toFixed(1);
+      const lastPt = data[data.length - 1];
+      const lastX = toX(lastPt.t).toFixed(1);
+      const lastY = toY(lastPt.v).toFixed(1);
+      const bottomY = (padTop + plotH).toFixed(1);
 
-      // Line stroke
-      ctx.strokeStyle = opts.strokeColor;
-      ctx.lineWidth = 1.8;
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      data.forEach((pt, idx) => {
-        const px = toX(pt.t);
-        const py = toY(pt.v);
-        if (idx === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-      ctx.stroke();
-
-      // Latest sample dot
-      const last = data[data.length - 1];
-      ctx.fillStyle = opts.strokeColor;
-      ctx.beginPath();
-      ctx.arc(toX(last.t), toY(last.v), 2.8, 0, Math.PI * 2);
-      ctx.fill();
+      parts.push(
+        `<polygon points="${firstX},${bottomY} ${lineCoords} ${lastX},${bottomY}" fill="${opts.fillColor}"/>`,
+        `<polyline points="${lineCoords}" fill="none" stroke="${opts.strokeColor}" stroke-width="1.8" stroke-linejoin="round"/>`,
+        `<circle cx="${lastX}" cy="${lastY}" r="2.6" fill="${opts.strokeColor}"/>`
+      );
     }
 
-    ctx.restore();
+    svg.innerHTML = parts.join('');
   }
 }

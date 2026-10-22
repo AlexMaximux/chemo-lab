@@ -64,6 +64,11 @@ export interface PourStreamEffect {
   label: string;
 }
 
+const MAX_BUBBLES = 36;
+const MAX_PRECIPITATES = 36;
+const MAX_VAPORS = 20;
+const MAX_FLARES = 3;
+
 export class EffectsManager {
   public bubbles: BubbleParticle[] = [];
   public precipitates: PrecipitateParticle[] = [];
@@ -77,14 +82,27 @@ export class EffectsManager {
   public shakeOffsetX = 0;
   public shakeOffsetY = 0;
 
-  public triggerGasEvolution(vessel: LabVessel, count = 16, color = 'rgba(225, 248, 255, 0.78)'): void {
-    for (let i = 0; i < count; i++) {
-      if (this.bubbles.length > 220) break;
+  public hasActiveEffects(): boolean {
+    return (
+      this.bubbles.length > 0 ||
+      this.precipitates.length > 0 ||
+      this.vapors.length > 0 ||
+      this.flares.length > 0 ||
+      this.shockwaves.length > 0 ||
+      this.pourStreams.length > 0 ||
+      this.flashAlpha > 0.01 ||
+      this.shakeIntensity > 0.1
+    );
+  }
+
+  public triggerGasEvolution(vessel: LabVessel, count = 12, color = 'rgba(225, 248, 255, 0.78)'): void {
+    const limit = Math.min(count, MAX_BUBBLES - this.bubbles.length);
+    for (let i = 0; i < limit; i++) {
       this.bubbles.push({
         vesselId: vessel.id,
         xOffset: (Math.random() - 0.5) * 0.62,
         yProgress: Math.random() * 0.35,
-        radius: 1.8 + Math.random() * 3.4,
+        radius: 1.8 + Math.random() * 3.2,
         speed: 0.45 + Math.random() * 0.75,
         wobblePhase: Math.random() * Math.PI * 2,
         color,
@@ -92,9 +110,9 @@ export class EffectsManager {
     }
   }
 
-  public triggerPrecipitate(vessel: LabVessel, color = 'rgba(245, 247, 250, 0.9)', count = 22): void {
-    for (let i = 0; i < count; i++) {
-      if (this.precipitates.length > 240) break;
+  public triggerPrecipitate(vessel: LabVessel, color = 'rgba(245, 247, 250, 0.9)', count = 14): void {
+    const limit = Math.min(count, MAX_PRECIPITATES - this.precipitates.length);
+    for (let i = 0; i < limit; i++) {
       this.precipitates.push({
         vesselId: vessel.id,
         xOffset: (Math.random() - 0.5) * 0.64,
@@ -106,39 +124,42 @@ export class EffectsManager {
     }
   }
 
-  public triggerCondensationAndVapor(vessel: LabVessel, count = 12, color = 'rgba(216, 238, 255, 0.38)'): void {
+  public triggerCondensationAndVapor(vessel: LabVessel, count = 8, color = 'rgba(216, 238, 255, 0.38)'): void {
     const cx = vessel.x + vessel.width * 0.5;
     const topY = vessel.y + vessel.height * 0.28;
-    for (let i = 0; i < count; i++) {
-      if (this.vapors.length > 160) break;
+    const limit = Math.min(count, MAX_VAPORS - this.vapors.length);
+    for (let i = 0; i < limit; i++) {
       this.vapors.push({
         x: cx + (Math.random() - 0.5) * vessel.width * 0.42,
         y: topY + (Math.random() - 0.5) * 16,
         vx: (Math.random() - 0.5) * 14,
         vy: -18 - Math.random() * 26,
-        radius: 6 + Math.random() * 10,
-        alpha: 0.42,
+        radius: 6 + Math.random() * 9,
+        alpha: 0.38,
         life: 0,
-        maxLife: 1.2 + Math.random() * 1.1,
+        maxLife: 1.0 + Math.random() * 0.9,
         color,
       });
     }
   }
 
   public triggerIgnitionFlare(vessel: LabVessel, fiery = false): void {
+    if (this.flares.length >= MAX_FLARES) {
+      this.flares.shift();
+    }
     const cx = vessel.x + vessel.width * 0.5;
     const cy = vessel.y + vessel.height * 0.48;
     const sparks = [];
-    const sparkCount = fiery ? 28 : 14;
+    const sparkCount = fiery ? 14 : 8;
     for (let i = 0; i < sparkCount; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = 35 + Math.random() * (fiery ? 140 : 75);
+      const speed = 35 + Math.random() * (fiery ? 130 : 70);
       sparks.push({
         x: cx,
         y: cy,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 30,
-        life: 0.4 + Math.random() * 0.5,
+        life: 0.35 + Math.random() * 0.4,
         color: i % 2 === 0 ? '#fde047' : '#fb923c',
       });
     }
@@ -317,16 +338,14 @@ export class EffectsManager {
         }
       } else if (stream.phase === 'g') {
         // Pressurized gas jet
-        const grad = ctx.createLinearGradient(cx, startY, cx, endY);
-        grad.addColorStop(0, 'rgba(56, 189, 248, 0.55)');
-        grad.addColorStop(1, 'rgba(56, 189, 248, 0.05)');
-        ctx.strokeStyle = grad;
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.38)';
         ctx.lineWidth = 6;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(cx, startY);
         ctx.lineTo(cx, endY);
         ctx.stroke();
+        ctx.setLineDash([]);
       } else {
         // Smooth laminar liquid stream
         ctx.strokeStyle = stream.color || 'rgba(186, 230, 253, 0.85)';
@@ -353,24 +372,21 @@ export class EffectsManager {
         if (p.vesselId !== vessel.id) continue;
         const px = cx + p.xOffset * (vessel.width * 0.65);
         const py = liquidBottomY - p.yProgress * liquidHeight;
-        ctx.save();
         ctx.fillStyle = p.color;
         ctx.beginPath();
         ctx.arc(px, py, p.size, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
       }
 
       // Render rising gas bubbles
+      ctx.lineWidth = 1.1;
       for (const b of this.bubbles) {
         if (b.vesselId !== vessel.id) continue;
         const wobble = Math.sin(b.wobblePhase) * 2.5;
         const bx = cx + b.xOffset * (vessel.width * 0.62) + wobble;
         const by = liquidBottomY - b.yProgress * liquidHeight;
-        ctx.save();
         ctx.strokeStyle = b.color;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
-        ctx.lineWidth = 1.1;
         ctx.beginPath();
         ctx.arc(bx, by, b.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -381,40 +397,43 @@ export class EffectsManager {
         ctx.beginPath();
         ctx.arc(bx - b.radius * 0.3, by - b.radius * 0.3, b.radius * 0.25, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
       }
     }
   }
 
   public renderOverlayEffects(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number): void {
-    // Vapor / condensation plumes
+    // Vapor / condensation plumes (layered soft circles, zero gradient allocations)
     for (const vp of this.vapors) {
       const progress = vp.life / vp.maxLife;
       const alpha = vp.alpha * (1 - progress);
       if (alpha <= 0.01) continue;
-      ctx.save();
-      const grad = ctx.createRadialGradient(vp.x, vp.y, 1, vp.x, vp.y, vp.radius);
-      grad.addColorStop(0, `rgba(226, 242, 255, ${alpha.toFixed(3)})`);
-      grad.addColorStop(1, 'rgba(226, 242, 255, 0)');
-      ctx.fillStyle = grad;
+      ctx.fillStyle = `rgba(226, 242, 255, ${(alpha * 0.45).toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(vp.x, vp.y, vp.radius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
+
+      ctx.fillStyle = `rgba(226, 242, 255, ${(alpha * 0.75).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(vp.x, vp.y, vp.radius * 0.55, 0, Math.PI * 2);
+      ctx.fill();
     }
 
-    // Ignition & combustion flares
+    // Ignition & combustion flares (layered concentric glow, zero gradient allocations)
     for (const fl of this.flares) {
-      ctx.save();
-      const radius = 44 * fl.intensity;
-      const grad = ctx.createRadialGradient(fl.x, fl.y, 2, fl.x, fl.y, Math.max(4, radius));
-      grad.addColorStop(0, `rgba(255, 255, 255, ${Math.min(1, fl.intensity * 1.1).toFixed(2)})`);
-      grad.addColorStop(0.35, `rgba(251, 191, 36, ${fl.intensity.toFixed(2)})`);
-      grad.addColorStop(0.7, `rgba(249, 115, 22, ${(fl.intensity * 0.65).toFixed(2)})`);
-      grad.addColorStop(1, 'rgba(249, 115, 22, 0)');
-      ctx.fillStyle = grad;
+      const radius = Math.max(4, 44 * fl.intensity);
+      ctx.fillStyle = `rgba(249, 115, 22, ${(fl.intensity * 0.34).toFixed(2)})`;
       ctx.beginPath();
-      ctx.arc(fl.x, fl.y, Math.max(4, radius), 0, Math.PI * 2);
+      ctx.arc(fl.x, fl.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(251, 191, 36, ${(fl.intensity * 0.68).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(fl.x, fl.y, radius * 0.62, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(1, fl.intensity * 0.95).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(fl.x, fl.y, radius * 0.28, 0, Math.PI * 2);
       ctx.fill();
 
       for (const sp of fl.sparks) {
@@ -424,26 +443,21 @@ export class EffectsManager {
         ctx.arc(sp.x, sp.y, 2.1, 0, Math.PI * 2);
         ctx.fill();
       }
-      ctx.restore();
     }
 
     // Shockwave rings
     for (const sw of this.shockwaves) {
-      ctx.save();
       ctx.strokeStyle = `rgba(254, 240, 138, ${Math.max(0, sw.alpha).toFixed(2)})`;
       ctx.lineWidth = 3.5;
       ctx.beginPath();
       ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.restore();
     }
 
     // Full-bench white explosion flash
     if (this.flashAlpha > 0.01) {
-      ctx.save();
       ctx.fillStyle = `rgba(255, 252, 245, ${this.flashAlpha.toFixed(3)})`;
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-      ctx.restore();
     }
   }
 
@@ -453,36 +467,18 @@ export class EffectsManager {
     nozzleTopY: number,
     timeSec: number
   ): void {
-    ctx.save();
     const flicker1 = Math.sin(timeSec * 24) * 2.2 + Math.cos(timeSec * 37) * 1.4;
     const flicker2 = Math.cos(timeSec * 19) * 1.8;
     const flameHeight = 44 + Math.sin(timeSec * 31) * 3.5;
 
-    // Ambient thermal glow
-    const glow = ctx.createRadialGradient(
-      cx,
-      nozzleTopY - flameHeight * 0.45,
-      3,
-      cx,
-      nozzleTopY - flameHeight * 0.45,
-      46
-    );
-    glow.addColorStop(0, 'rgba(56, 189, 248, 0.34)');
-    glow.addColorStop(0.55, 'rgba(251, 146, 60, 0.14)');
-    glow.addColorStop(1, 'rgba(56, 189, 248, 0)');
-    ctx.fillStyle = glow;
+    // Ambient thermal glow (layered translucent circles, zero gradient allocation)
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
     ctx.beginPath();
-    ctx.arc(cx, nozzleTopY - flameHeight * 0.45, 46, 0, Math.PI * 2);
+    ctx.arc(cx, nozzleTopY - flameHeight * 0.45, 38, 0, Math.PI * 2);
     ctx.fill();
 
-    // Outer oxidizing mantle (translucent blue-amber)
-    const outerGrad = ctx.createLinearGradient(cx, nozzleTopY, cx, nozzleTopY - flameHeight);
-    outerGrad.addColorStop(0, 'rgba(14, 165, 233, 0.85)');
-    outerGrad.addColorStop(0.55, 'rgba(56, 189, 248, 0.75)');
-    outerGrad.addColorStop(0.85, 'rgba(251, 146, 60, 0.65)');
-    outerGrad.addColorStop(1, 'rgba(253, 224, 71, 0)');
-
-    ctx.fillStyle = outerGrad;
+    // Outer oxidizing mantle
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.72)';
     ctx.beginPath();
     ctx.moveTo(cx - 10, nozzleTopY);
     ctx.quadraticCurveTo(cx - 15 + flicker2, nozzleTopY - flameHeight * 0.5, cx + flicker1, nozzleTopY - flameHeight);
@@ -492,19 +488,12 @@ export class EffectsManager {
 
     // Inner blue reducing cone
     const innerHeight = flameHeight * 0.56;
-    const innerGrad = ctx.createLinearGradient(cx, nozzleTopY, cx, nozzleTopY - innerHeight);
-    innerGrad.addColorStop(0, 'rgba(224, 242, 254, 0.95)');
-    innerGrad.addColorStop(0.6, 'rgba(56, 189, 248, 0.92)');
-    innerGrad.addColorStop(1, 'rgba(14, 165, 233, 0.1)');
-
-    ctx.fillStyle = innerGrad;
+    ctx.fillStyle = 'rgba(224, 242, 254, 0.92)';
     ctx.beginPath();
     ctx.moveTo(cx - 5.5, nozzleTopY);
     ctx.quadraticCurveTo(cx - 7, nozzleTopY - innerHeight * 0.45, cx + flicker2 * 0.4, nozzleTopY - innerHeight);
     ctx.quadraticCurveTo(cx + 7, nozzleTopY - innerHeight * 0.45, cx + 5.5, nozzleTopY);
     ctx.closePath();
     ctx.fill();
-
-    ctx.restore();
   }
 }

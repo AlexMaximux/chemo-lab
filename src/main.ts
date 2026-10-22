@@ -135,28 +135,44 @@ export function bootstrapApp(rootEl: HTMLElement): {
   renderNotebookList();
 
   let benchRef: LabBench | null = null;
+  let lastSampleTempK = Number.NaN;
+  let lastSamplePh = Number.NaN;
+  let lastSamplePressure = Number.NaN;
 
   const bench = new LabBench(canvasEl, {
     onSelectVessel: (vessel) => {
       uiRef?.updateInspector(vessel);
+      if (vessel) {
+        lastSampleTempK = vessel.mixture.tempK;
+        lastSamplePh = benchRef ? benchRef.getCachedPh(vessel) : 7.0;
+        lastSamplePressure = vessel.lastStepResult.pressureKPa;
+      }
     },
     onLogEvent: (action, details, vessel, extra) => {
-      const hasContents = vessel && Object.keys(vessel.mixture.moles).length > 0;
+      const currentPh = vessel ? (benchRef ? benchRef.getCachedPh(vessel) : pH(vessel.mixture)) : undefined;
+      const simTime = benchRef ? benchRef.simElapsedSeconds : 0;
       const entry: Entry = {
         timestamp: Date.now(),
-        simTime: benchRef ? benchRef.simElapsedSeconds : 0,
+        simTime,
         action,
         vesselId: vessel?.id,
         details,
         reaction: extra?.reaction,
         tempK: vessel?.mixture.tempK,
-        pH: vessel ? (hasContents ? pH(vessel.mixture) : 7.0) : undefined,
+        pH: currentPh,
         pressureKPa: vessel?.lastStepResult.pressureKPa,
         hazards: extra?.hazards,
       };
       notebook.log(entry);
       notebook.save();
       renderNotebookList();
+      uiRef?.updateSimClock(simTime);
+      if (vessel && currentPh !== undefined && benchRef) {
+        lastSampleTempK = vessel.mixture.tempK;
+        lastSamplePh = currentPh;
+        lastSamplePressure = vessel.lastStepResult.pressureKPa;
+        graphs.sample(simTime, vessel.mixture.tempK, currentPh, true);
+      }
     },
     onHazard: (hazards, message, vessel) => {
       uiRef?.showHazardBanner(hazards, message, vessel);
@@ -165,10 +181,22 @@ export function bootstrapApp(rootEl: HTMLElement): {
       uiRef?.showNotice(message, level);
     },
     onSimSample: (simTime, vessel) => {
-      uiRef?.updateSimClock(simTime);
-      if (vessel) {
-        const hasContents = Object.keys(vessel.mixture.moles).length > 0;
-        const currentPh = hasContents ? pH(vessel.mixture) : 7.0;
+      if (!vessel) return;
+      const currentPh = benchRef ? benchRef.getCachedPh(vessel) : pH(vessel.mixture);
+      const tempChanged =
+        Number.isNaN(lastSampleTempK) || Math.abs(vessel.mixture.tempK - lastSampleTempK) > 2.5;
+      const phChanged =
+        Number.isNaN(lastSamplePh) || Math.abs(currentPh - lastSamplePh) > 0.02;
+      const pressureChanged =
+        Number.isNaN(lastSamplePressure) ||
+        Math.abs(vessel.lastStepResult.pressureKPa - lastSamplePressure) > 2.0;
+
+      // Only touch DOM panels & telemetry charts when physical/chemical state changes significantly
+      if (tempChanged || phChanged || pressureChanged) {
+        lastSampleTempK = vessel.mixture.tempK;
+        lastSamplePh = currentPh;
+        lastSamplePressure = vessel.lastStepResult.pressureKPa;
+        uiRef?.updateSimClock(simTime);
         graphs.sample(simTime, vessel.mixture.tempK, currentPh);
       }
     },
@@ -201,7 +229,17 @@ export function bootstrapApp(rootEl: HTMLElement): {
     ui.showNotice('Cleared lab notebook and live telemetry charts.', 'info');
   });
 
-  graphs.render();
+  const initVessel = bench.getSelectedVessel();
+  if (initVessel) {
+    const initPh = bench.getCachedPh(initVessel);
+    lastSampleTempK = initVessel.mixture.tempK;
+    lastSamplePh = initPh;
+    lastSamplePressure = initVessel.lastStepResult.pressureKPa;
+    graphs.sample(0, initVessel.mixture.tempK, initPh, false);
+    graphs.sample(0.05, initVessel.mixture.tempK, initPh, true);
+  } else {
+    graphs.render();
+  }
 
   let lastTime = performance.now();
   const loop = (now: number) => {

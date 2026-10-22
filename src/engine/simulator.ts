@@ -16,6 +16,12 @@ const DEFAULT_BURST_PRESSURE_KPA = 300.0; // ~3 atm for standard glass labware
 const MAX_SUBSTEP_SECONDS = 0.05; // 50 ms fixed tick per spec
 const EPSILON = 1e-12;
 
+// Deterministic ordering: lower activation energy first, then alphabetical by id
+const ORDERED_REACTIONS = [...REACTIONS].sort((a, b) => {
+  if (a.Ea !== b.Ea) return a.Ea - b.Ea;
+  return a.id.localeCompare(b.id);
+});
+
 export class Simulator {
   public readonly mixture: Mixture;
   public readonly m: Mixture;
@@ -77,19 +83,17 @@ export class Simulator {
     let totalHeatJ = 0;
 
     if (Number.isFinite(dtSeconds) && dtSeconds > 0) {
-      const numSubsteps = Math.max(1, Math.ceil(dtSeconds / MAX_SUBSTEP_SECONDS));
-      const subDt = dtSeconds / numSubsteps;
+      const hasReagents = Object.keys(this.mixture.moles).length > 0;
+      if (!hasReagents) {
+        this.elapsedSeconds += dtSeconds;
+      } else {
+        const numSubsteps = Math.max(1, Math.ceil(dtSeconds / MAX_SUBSTEP_SECONDS));
+        const subDt = dtSeconds / numSubsteps;
 
-      // Deterministic ordering: lower activation energy first, then alphabetical by id
-      const orderedReactions = [...REACTIONS].sort((a, b) => {
-        if (a.Ea !== b.Ea) return a.Ea - b.Ea;
-        return a.id.localeCompare(b.id);
-      });
+        for (let s = 0; s < numSubsteps; s++) {
+          this.elapsedSeconds += subDt;
 
-      for (let s = 0; s < numSubsteps; s++) {
-        this.elapsedSeconds += subDt;
-
-        for (const rxn of orderedReactions) {
+          for (const rxn of ORDERED_REACTIONS) {
           if (!this.conditionsMet(rxn)) {
             continue;
           }
@@ -136,16 +140,17 @@ export class Simulator {
             time: this.elapsedSeconds,
           });
 
-          if (rxn.hazard) {
-            for (const h of rxn.hazard) {
-              hazardsSet.add(h);
-              this.events.push({
-                type: 'hazard',
-                reactionId: rxn.id,
-                hazard: h,
-                message: `Hazard warning (${h}) from reaction ${rxn.id}`,
-                time: this.elapsedSeconds,
-              });
+            if (rxn.hazard) {
+              for (const h of rxn.hazard) {
+                hazardsSet.add(h);
+                this.events.push({
+                  type: 'hazard',
+                  reactionId: rxn.id,
+                  hazard: h,
+                  message: `Hazard warning (${h}) from reaction ${rxn.id}`,
+                  time: this.elapsedSeconds,
+                });
+              }
             }
           }
         }

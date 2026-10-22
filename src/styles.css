@@ -72,6 +72,7 @@ body {
   background: linear-gradient(180deg, #131b2b 0%, #0d131f 100%);
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: inset 0 -1px 0 0 rgba(255, 255, 255, 0.04);
+  contain: layout paint;
   z-index: 20;
 }
 
@@ -181,6 +182,8 @@ body {
 .sim-clock-pill {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  min-width: 64px;
   gap: 5px;
   padding: 4px 8px;
   background: #090d14;
@@ -188,6 +191,7 @@ body {
   border-radius: 6px;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  contain: layout paint;
 }
 
 .clock-label {
@@ -291,6 +295,7 @@ body {
   height: 100%;
   overflow: hidden;
   background: var(--bg-obsidian);
+  contain: layout paint;
 }
 
 #bench-canvas {
@@ -318,8 +323,7 @@ body {
   gap: 12px;
   padding: 9px 14px;
   border-radius: 8px;
-  background: rgba(127, 29, 29, 0.92);
-  backdrop-filter: blur(12px);
+  background: rgba(127, 29, 29, 0.96);
   border: 1px solid rgba(248, 113, 113, 0.65);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
   z-index: 15;
@@ -374,7 +378,6 @@ body {
   border-radius: 8px;
   font-size: 11.5px;
   font-weight: 500;
-  backdrop-filter: blur(12px);
   box-shadow: var(--shadow-specular);
   border: 1px solid var(--border-strong);
   z-index: 14;
@@ -659,6 +662,7 @@ body {
   border-top: 1px solid var(--border-strong);
   padding: 8px 12px;
   overflow: hidden;
+  contain: layout paint;
   z-index: 18;
 }
 
@@ -907,7 +911,8 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   cursor: grab;
-  transition: border-color 140ms ease, background 140ms ease;
+  content-visibility: auto;
+  contain-intrinsic-size: 170px 86px;
 }
 
 .chem-card:hover {
@@ -1032,6 +1037,7 @@ body {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  contain: layout paint;
   z-index: 19;
 }
 
