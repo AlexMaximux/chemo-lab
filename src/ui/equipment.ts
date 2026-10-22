@@ -382,6 +382,13 @@ export function runChloramineHazardScenario(vessel: LabVessel): StepResult {
   return stepVesselPhysics(vessel, 0.1);
 }
 
+export function runNaBH4AcidScenario(vessel: LabVessel): VesselStepResult {
+  resetVesselState(vessel);
+  pourChemical(vessel, 'HCl', 80, 'mL', { molarity: 1.0 });
+  pourChemical(vessel, 'NaBH4', 1.0, 'g');
+  return stepVesselPhysics(vessel, 0.1);
+}
+
 export function calculatePourAmount(
   speciesId: string,
   amount: number,
@@ -897,10 +904,10 @@ export function formatReactionEquation(reactionOrId: string | Reaction): string 
 
 export function getSpeciesCategory(sp: Species): Exclude<ChemicalCategory, 'all'> {
   if (sp.phase === 'g') return 'gases';
-  if (['C2H5OH', 'C6H12O6', 'C3H8', 'C2H4', 'CH3OH', 'CH4'].includes(sp.id)) {
+  if (['C2H5OH', 'C6H12O6', 'C3H8', 'C2H4', 'CH3OH', 'CH4', 'CH3COCH3', 'C3H8O'].includes(sp.id)) {
     return 'organics';
   }
-  if (sp.ka !== undefined && sp.ka >= 1e-7 && sp.id !== 'NH4Cl') {
+  if ((sp.ka !== undefined && sp.ka >= 1e-7 && sp.id !== 'NH4Cl') || sp.id === 'H3BO3') {
     return 'acids';
   }
   if (

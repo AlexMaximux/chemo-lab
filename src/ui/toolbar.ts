@@ -71,6 +71,9 @@ export class ToolbarAndInspectorUI {
         <button type="button" class="btn-chip btn-chip-danger" data-preset="hazard_chloramine" title="Mix Bleach (NaOCl) + Ammonia (toxic chloramine gas)">
           NaOCl + NH₃
         </button>
+        <button type="button" class="btn-chip btn-chip-danger" data-preset="nabh4_hcl" title="Mix NaBH4 with 1M HCl (violent H2 gas evolution & heat)">
+          NaBH₄ + HCl
+        </button>
       </div>
 
       <div class="header-controls">

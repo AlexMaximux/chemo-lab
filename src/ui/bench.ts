@@ -381,6 +381,13 @@ export class LabBench {
       this.pourIntoVessel(target, 'NaOCl', 40, 'mL', { molarity: 0.5 });
       this.pourIntoVessel(target, 'NH3(aq)', 40, 'mL', { molarity: 0.5 });
       this.callbacks.onSelectVessel(target);
+    } else if (preset === 'nabh4_hcl') {
+      const target = vessels.find((v) => v.vesselType === 'beaker') ?? this.getSelectedVessel() ?? vessels[0];
+      this.selectVessel(target.id);
+      resetVesselState(target);
+      this.pourIntoVessel(target, 'HCl', 80, 'mL', { molarity: 1.0 });
+      this.pourIntoVessel(target, 'NaBH4', 1.0, 'g');
+      this.callbacks.onSelectVessel(target);
     }
   }
 

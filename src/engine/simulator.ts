@@ -201,7 +201,10 @@ export class Simulator {
   private limitingExtent(rxn: Reaction): number {
     let minExtent = Infinity;
     for (const [spId, coeff] of Object.entries(rxn.reactants)) {
-      const avail = this.mixture.moles[spId] ?? 0;
+      const avail =
+        spId === 'H2O'
+          ? (this.mixture.moles.H2O ?? 0) + this.mixture.solventWaterMoles()
+          : (this.mixture.moles[spId] ?? 0);
       if (avail <= EPSILON) {
         return 0;
       }
@@ -254,11 +257,28 @@ export class Simulator {
 
   private applyReactionExtent(rxn: Reaction, dXi: number): void {
     for (const [rId, coeff] of Object.entries(rxn.reactants)) {
-      const next = (this.mixture.moles[rId] ?? 0) - coeff * dXi;
-      if (next <= EPSILON) {
-        delete this.mixture.moles[rId];
+      const needed = coeff * dXi;
+      if (rId === 'H2O') {
+        const explicitH2O = this.mixture.moles.H2O ?? 0;
+        if (explicitH2O >= needed - EPSILON) {
+          const next = explicitH2O - needed;
+          if (next <= EPSILON) {
+            delete this.mixture.moles.H2O;
+          } else {
+            this.mixture.moles.H2O = next;
+          }
+        } else {
+          const fromSolvent = needed - explicitH2O;
+          delete this.mixture.moles.H2O;
+          this.mixture.consumedSolventMoles += Math.max(0, fromSolvent);
+        }
       } else {
-        this.mixture.moles[rId] = next;
+        const next = (this.mixture.moles[rId] ?? 0) - needed;
+        if (next <= EPSILON) {
+          delete this.mixture.moles[rId];
+        } else {
+          this.mixture.moles[rId] = next;
+        }
       }
     }
 

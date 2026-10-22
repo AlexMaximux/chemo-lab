@@ -142,6 +142,14 @@ async function main() {
     await page.waitForTimeout(50);
     const hazardChloramineMetrics = await readInspectorMetrics(page);
 
+    await page.click('[data-preset="nabh4_hcl"]');
+    await page.waitForTimeout(50);
+    const nabh4HclMetrics = await readInspectorMetrics(page);
+    const warningBannerVisible = await page.evaluate(() => {
+      const b = document.querySelector('#hazard-warning-banner');
+      return !!b && !b.classList.contains('hidden');
+    });
+
     const scenarios = {
       make_water_ignited: {
         metrics: makeWaterMetrics.metrics,
@@ -166,6 +174,13 @@ async function main() {
         rows: hazardChloramineMetrics.rows,
         ventedNote: hazardChloramineMetrics.ventedNote,
         loggedVentInNotebook: /Vented .* mol NH2Cl to atmosphere/.test(hazardChloramineMetrics.notebookLogText),
+      },
+      nabh4_hcl: {
+        metrics: nabh4HclMetrics.metrics,
+        rows: nabh4HclMetrics.rows,
+        ventedNote: nabh4HclMetrics.ventedNote,
+        warningBannerVisible,
+        loggedVentInNotebook: /Vented .* mol H2 to atmosphere/.test(nabh4HclMetrics.notebookLogText),
       },
     };
 

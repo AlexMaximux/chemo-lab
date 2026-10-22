@@ -15,6 +15,7 @@ export class Mixture {
   public tempK: number = 298.15;
   public liquidVolumeAddedL: number = 0;
   public solidVolumeAddedL: number = 0;
+  public consumedSolventMoles: number = 0;
   public hasAqueousSolvent: boolean = false;
   private explicitVolume = false;
 
@@ -48,6 +49,7 @@ export class Mixture {
     this.tempK = 298.15;
     this.liquidVolumeAddedL = 0;
     this.solidVolumeAddedL = 0;
+    this.consumedSolventMoles = 0;
     this.hasAqueousSolvent = false;
     this.explicitVolume = false;
   }
@@ -66,6 +68,7 @@ export class Mixture {
     if (wasEmpty) {
       this.liquidVolumeAddedL = 0;
       this.solidVolumeAddedL = 0;
+      this.consumedSolventMoles = 0;
       this.hasAqueousSolvent = false;
     }
 
@@ -107,12 +110,15 @@ export class Mixture {
   }
 
   /**
-   * Mass (g) of aqueous solvent water (volume * 0.997 g/mL at 25 °C) when aqueous species exist.
+   * Mass (g) of aqueous solvent water (volume * 0.997 g/mL at 25 °C) when aqueous species exist,
+   * minus any solvent water consumed by hydrolysis reactions.
    */
   public solventWaterMass(): number {
     const aqVolL = this.solventWaterVolumeL();
     if (aqVolL <= 0) return 0;
-    return aqVolL * WATER_DENSITY_25C * 1000.0;
+    const rawMassG = aqVolL * WATER_DENSITY_25C * 1000.0;
+    const consumedMassG = this.consumedSolventMoles * SPECIES.H2O.molarMass;
+    return Math.max(0, rawMassG - consumedMassG);
   }
 
   /**

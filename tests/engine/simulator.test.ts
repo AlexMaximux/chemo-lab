@@ -171,4 +171,34 @@ describe('Simulator (kinetics, limiting reagent, time stepping)', () => {
     }
     expect(m.totalMass()).toBeCloseTo(massBefore, 4);
   });
+
+  it('releases 4 mol H2 per 1 mol NaBH4 in excess water or acid and conserves atoms', () => {
+    // 1 mol NaBH4 in excess HCl + H2O -> 4 mol H2 + 1 mol H3BO3 + 1 mol NaCl
+    const mAcid = new Mixture({ volumeL: 1.0, tempK: 298.15 });
+    mAcid.add('HCl', 2.0);
+    mAcid.add('NaBH4', 1.0);
+    const atomsBeforeAcid = mAcid.totalAtoms();
+
+    const simAcid = new Simulator(mAcid, { vesselL: 5.0, closed: true });
+    const resAcid = simAcid.step(0.5);
+    expect(resAcid.reactionsFired).toContain('nabh4_hcl_hydrolysis');
+    expect(mAcid.moles.H2).toBeCloseTo(4.0, 4);
+    expect(mAcid.moles.H3BO3).toBeCloseTo(1.0, 4);
+    expect(mAcid.moles.NaCl).toBeCloseTo(1.0, 4);
+
+    const atomsAfterAcid = mAcid.totalAtoms();
+    for (const [el, count] of Object.entries(atomsBeforeAcid)) {
+      expect(atomsAfterAcid[el]).toBeCloseTo(count, 5);
+    }
+
+    // 1 mol NaBH4 in excess neutral H2O -> 4 mol H2 + 1 mol NaBO2
+    const mWater = new Mixture({ tempK: 298.15 });
+    mWater.add('H2O', 10.0);
+    mWater.add('NaBH4', 1.0);
+    const simWater = new Simulator(mWater, { vesselL: 5.0, closed: true });
+    const resWater = simWater.step(1.0);
+    expect(resWater.reactionsFired).toContain('nabh4_h2o_hydrolysis');
+    expect(mWater.moles.H2).toBeCloseTo(4.0, 4);
+    expect(mWater.moles.NaBO2).toBeCloseTo(1.0, 4);
+  });
 });

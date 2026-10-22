@@ -179,5 +179,20 @@ describe('REACTIONS table', () => {
     );
     expect(h2Cl2, 'Missing H2 + Cl2').toBeDefined();
     expect(h2Cl2?.hazard?.length).toBeGreaterThan(0);
+
+    // 10. NaBH4 reactions: neutral hydrolysis, acid hydrolysis, and acetone reduction
+    const nabh4Water = REACTIONS.find((r) => r.id === 'nabh4_h2o_hydrolysis');
+    expect(nabh4Water).toBeDefined();
+    expect(nabh4Water?.products.H2).toBe(4);
+
+    const nabh4Acid = REACTIONS.find((r) => r.id === 'nabh4_hcl_hydrolysis');
+    expect(nabh4Acid).toBeDefined();
+    expect(nabh4Acid?.products.H2).toBe(4);
+    expect(nabh4Acid?.products.H3BO3).toBe(1);
+
+    const acetoneRed = REACTIONS.find((r) => r.id === 'acetone_nabh4_reduction');
+    expect(acetoneRed).toBeDefined();
+    expect(acetoneRed?.reactants.CH3COCH3).toBe(4);
+    expect(acetoneRed?.products.C3H8O).toBe(4);
   });
 });

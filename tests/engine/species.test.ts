@@ -145,4 +145,24 @@ describe('SPECIES dataset', () => {
       expect(sp.source).toMatch(/NIST|PubChem|CRC/i);
     }
   });
+
+  it('includes NaBH4 (molar mass 37.83 ±0.05), NaBO2, H3BO3 (pKa 9.24), acetone, and isopropanol', () => {
+    const nabh4 = SPECIES['NaBH4'];
+    expect(nabh4).toBeDefined();
+    expect(nabh4.phase).toBe('s');
+    expect(Math.abs(nabh4.molarMass - 37.83)).toBeLessThanOrEqual(0.05);
+
+    const nabo2 = SPECIES['NaBO2'];
+    expect(nabo2).toBeDefined();
+    expect(nabo2.phase).toBe('aq');
+
+    const h3bo3 = SPECIES['H3BO3'];
+    expect(h3bo3).toBeDefined();
+    expect(h3bo3.phase).toBe('aq');
+    const pKa = -Math.log10(h3bo3.ka!);
+    expect(pKa).toBeCloseTo(9.24, 2);
+
+    expect(SPECIES['CH3COCH3']).toBeDefined();
+    expect(SPECIES['C3H8O']).toBeDefined();
+  });
 });

@@ -134,27 +134,27 @@ body {
 .header-presets {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-wrap: nowrap;
 }
 
 .control-group-label {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--text-muted);
-  margin-right: 3px;
+  margin-right: 2px;
 }
 
 .btn-chip {
-  padding: 4px 8px;
+  padding: 4px 6px;
   border-radius: 6px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;

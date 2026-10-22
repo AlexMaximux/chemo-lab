@@ -15,6 +15,7 @@ import {
   runNeutralizeScenario,
   runSodiumWaterHazardScenario,
   runChloramineHazardScenario,
+  runNaBH4AcidScenario,
   stepVesselPhysics,
 } from '../../src/ui/equipment';
 import { SPECIES } from '../../src/engine/data/species';
@@ -264,5 +265,27 @@ describe('UI Equipment & Bench Logic (pour math, overflow clamp, transfers)', ()
     for (const [el, count] of Object.entries(atomsBefore)) {
       expect(atomsAfter[el]).toBeCloseTo(count, 6);
     }
+  });
+
+  it('runs the NaBH4 + HCl scenario, yielding 4 mol H2 per mol NaBH4 (vented + remaining), hazard flags, and calorimetric temperature rise', () => {
+    const beaker = createVessel('beaker', 100, 100);
+    const res = runNaBH4AcidScenario(beaker);
+
+    expect(res.reactionsFired).toContain('nabh4_hcl_hydrolysis');
+    expect(res.hazards).toEqual(expect.arrayContaining(['flammable', 'explosive']));
+
+    const nabh4Moles = 1.0 / SPECIES.NaBH4.molarMass;
+    const expectedH2 = 4.0 * nabh4Moles;
+    const remainingH2 = beaker.mixture.moles.H2 ?? 0;
+    const ventedH2 = beaker.ventedMoles.H2 ?? 0;
+
+    expect(ventedH2).toBeGreaterThan(0.08);
+    expect(remainingH2).toBeGreaterThan(0.004);
+    expect(ventedH2 + remainingH2).toBeCloseTo(expectedH2, 5);
+
+    const actualDeltaT = beaker.mixture.tempK - 298.15;
+    const expectedDeltaT = res.heatJ / beaker.mixture.heatCapacity();
+    expect(actualDeltaT).toBeGreaterThan(15.0);
+    expect(Math.abs(actualDeltaT - expectedDeltaT)).toBeLessThanOrEqual(1.0);
   });
 });
