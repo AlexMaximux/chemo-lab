@@ -22,6 +22,22 @@ const CATEGORY_LABELS: Array<{ id: ChemicalCategory; label: string }> = [
   { id: 'liquids_oxides', label: 'Liquids & Oxides' },
 ];
 
+export function searchChemicals(
+  allSpecies: Species[],
+  query: string,
+  category: ChemicalCategory = 'all'
+): Species[] {
+  const q = query.trim().toLowerCase();
+  return allSpecies.filter((sp) => {
+    if (category !== 'all' && getSpeciesCategory(sp) !== category) {
+      return false;
+    }
+    if (!q) return true;
+    const hay = `${sp.id} ${sp.formula} ${sp.name} ${(sp.hazard || []).join(' ')}`.toLowerCase();
+    return hay.includes(q);
+  });
+}
+
 export class ToolbarAndInspectorUI {
   private readonly bench: LabBench;
   private activeCategory: ChemicalCategory = 'all';
@@ -73,6 +89,9 @@ export class ToolbarAndInspectorUI {
         </button>
         <button type="button" class="btn-chip btn-chip-danger" data-preset="nabh4_hcl" title="Mix NaBH4 with 1M HCl (violent H2 gas evolution & heat)">
           NaBH₄ + HCl
+        </button>
+        <button type="button" class="btn-chip" data-preset="propiophenone_nabh4" title="Mix Propiophenone with NaBH4 (reduction to 1-phenyl-1-propanol)">
+          Propiophenone + NaBH4
         </button>
       </div>
 
@@ -313,14 +332,7 @@ export class ToolbarAndInspectorUI {
 
   private renderChemicalGrid(): void {
     const allSpecies = Object.values(SPECIES);
-    const filtered = allSpecies.filter((sp) => {
-      if (this.activeCategory !== 'all' && getSpeciesCategory(sp) !== this.activeCategory) {
-        return false;
-      }
-      if (!this.searchQuery) return true;
-      const hay = `${sp.id} ${sp.formula} ${sp.name} ${(sp.hazard || []).join(' ')}`.toLowerCase();
-      return hay.includes(this.searchQuery);
-    });
+    const filtered = searchChemicals(allSpecies, this.searchQuery, this.activeCategory);
 
     this.chemCountBadgeEl.textContent = `${filtered.length}`;
 
@@ -405,6 +417,11 @@ export class ToolbarAndInspectorUI {
         ? `<span class="chem-hazard-dot" title="Hazards: ${hazards.join(', ')}">⚠ ${hazards[0]}</span>`
         : '';
 
+    const estBadge =
+      sp.estimated && sp.estimated.length > 0
+        ? `<span class="chem-est-badge" title="Estimated thermodynamic data: ${sp.estimated.join(', ')}">est.</span>`
+        : '';
+
     const actionsHtml =
       sp.phase === 'g'
         ? `
@@ -426,6 +443,7 @@ export class ToolbarAndInspectorUI {
             <span class="chem-swatch" style="background:${swatchColor}"></span>
             <span class="chem-formula">${formatFormula(sp.formula)}</span>
             <span class="chem-phase phase-${sp.phase}">${sp.phase}</span>
+            ${estBadge}
           </div>
           ${hazardBadge}
         </div>
@@ -494,6 +512,10 @@ export class ToolbarAndInspectorUI {
 
     const otherVessels = this.bench.getVessels().filter((v) => v.id !== vessel.id && !v.burst);
 
+    const hasEstimatedSpecies = Object.entries(vessel.mixture.moles).some(
+      ([spId, moles]) => moles > 1e-9 && SPECIES[spId]?.estimated && SPECIES[spId].estimated!.length > 0
+    );
+
     const volFormatted =
       volML > 0 && volML < 1.0 ? `${volML.toFixed(2)} mL` : `${volML.toFixed(1)} mL`;
 
@@ -561,6 +583,11 @@ export class ToolbarAndInspectorUI {
           <div class="rxn-status-box">
             ${reactionDisplay}
           </div>
+          ${
+            hasEstimatedSpecies
+              ? `<div class="inspector-estimate-note">Estimated thermodynamic data (+-10 kJ/mol)</div>`
+              : ''
+          }
         </div>
 
         <div class="inspector-section">

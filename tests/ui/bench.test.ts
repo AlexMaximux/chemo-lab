@@ -16,8 +16,10 @@ import {
   runSodiumWaterHazardScenario,
   runChloramineHazardScenario,
   runNaBH4AcidScenario,
+  runPropiophenoneReductionScenario,
   stepVesselPhysics,
 } from '../../src/ui/equipment';
+import { searchChemicals } from '../../src/ui/toolbar';
 import { SPECIES } from '../../src/engine/data/species';
 import { pH } from '../../src/engine/solution';
 
@@ -287,5 +289,33 @@ describe('UI Equipment & Bench Logic (pour math, overflow clamp, transfers)', ()
     const expectedDeltaT = res.heatJ / beaker.mixture.heatCapacity();
     expect(actualDeltaT).toBeGreaterThan(15.0);
     expect(Math.abs(actualDeltaT - expectedDeltaT)).toBeLessThanOrEqual(1.0);
+  });
+
+  it('searches chemicals drawer matching propio, C9H10O, and phenyl correctly', () => {
+    const all = Object.values(SPECIES);
+
+    const matchPropio = searchChemicals(all, 'propio');
+    expect(matchPropio.map((s) => s.id)).toContain('PROPIOPHENONE');
+
+    const matchFormula = searchChemicals(all, 'C9H10O');
+    expect(matchFormula.map((s) => s.id)).toContain('PROPIOPHENONE');
+
+    const matchPhenyl = searchChemicals(all, 'phenyl');
+    const phenylIds = matchPhenyl.map((s) => s.id);
+    expect(phenylIds).toContain('PROPIOPHENONE');
+    expect(phenylIds).toContain('PHENYLPROPANOL');
+  });
+
+  it('runs the Propiophenone + NaBH4 scenario, reducing propiophenone to 1-phenyl-1-propanol with calorimetric temperature rise', () => {
+    const beaker = createVessel('beaker', 100, 100);
+    const res = runPropiophenoneReductionScenario(beaker);
+
+    expect(res.reactionsFired).toContain('propiophenone_nabh4_reduction');
+    expect(beaker.mixture.moles.PHENYLPROPANOL).toBeCloseTo(0.04, 4);
+    expect(beaker.mixture.moles.NaBO2).toBeCloseTo(0.01, 4);
+    expect(beaker.mixture.moles.PROPIOPHENONE ?? 0).toBeCloseTo(0, 4);
+    expect(beaker.mixture.moles.NaBH4 ?? 0).toBeCloseTo(0, 4);
+
+    expect(beaker.mixture.tempK).toBeGreaterThan(350);
   });
 });

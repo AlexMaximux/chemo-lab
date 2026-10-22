@@ -1072,4 +1072,58 @@ export const SPECIES: Record<string, Species> = {
     hazard: ['flammable'],
     source: 'NIST Chemistry WebBook (SRD 69)',
   },
+  PROPIOPHENONE: {
+    id: 'PROPIOPHENONE',
+    formula: 'C9H10O',
+    name: 'Propiophenone (1-phenylpropan-1-one)',
+    phase: 'l',
+    molarMass: 134.18,
+    // dHf: -167.2 kJ/mol (measured liquid enthalpy of formation from NIST SRD 69; Colomina, Latorre, et al., 1961)
+    dHf: -167.2,
+    // S: 268.0 J/(mol*K)
+    // ESTIMATE: Scaled from ethylbenzene liquid S° = 255.01 J/(mol*K) (NIST SRD 69) + methylene (-CH2-)
+    // increment of +32.77 J/(mol*K) observed in propylbenzene (287.78 J/(mol*K), NIST SRD 69) and 1-propanol
+    // vs ethanol (+32.94 J/(mol*K), NIST SRD 69), minus ketone liquid dipole ordering penalty of ~19.8 J/(mol*K)
+    // (derived from acetone vs propane): 255.01 + 32.77 - 19.8 = 267.98 ≈ 268.0 J/(mol*K).
+    S: 268.0,
+    // Cp: 240.0 J/(mol*K)
+    // ESTIMATE: Liquid heat capacity measured by Richard Fuchs (Can. J. Chem. 1980, 58, 2305-2307) as 238.1 J/(mol*K);
+    // also scaled from acetophenone NIST liquid Cp = 227.6 J/(mol*K) at 303 K (Phillip, 1939) plus liquid -CH2-
+    // increment of ~13 J/(mol*K) (toluene -> ethylbenzene -> propylbenzene: +28 to +31 J/(mol*K) overall): 227.6 + 12.4 ≈ 240.0 J/(mol*K).
+    Cp: 240.0,
+    density: 1.009,
+    hazard: ['flammable'],
+    estimated: ['S', 'Cp'],
+    source: 'ESTIMATE (Benson group additivity / analog scaling); dHf of propiophenone from NIST SRD 69',
+  },
+  PHENYLPROPANOL: {
+    id: 'PHENYLPROPANOL',
+    formula: 'C9H12O',
+    name: '1-Phenyl-1-propanol (α-ethylbenzyl alcohol)',
+    phase: 'l',
+    molarMass: 136.19,
+    // dHf: -235.20 kJ/mol
+    // ESTIMATE: Derived by ketone -> secondary alcohol hydrogenation enthalpy Δ(ΔfH°) = -68.00 kJ/mol applied to
+    // propiophenone (-167.20 kJ/mol). The Δ(ΔfH°) increment is calibrated from NIST SRD 69 close analogs:
+    // acetone (-248.40 kJ/mol) -> isopropanol (-318.10 kJ/mol, Δ = -69.70 kJ/mol) and cyclohexanone
+    // (-276.10 kJ/mol) -> cyclohexanol (-352.00 kJ/mol, Δ = -75.90 kJ/mol). -167.20 + (-68.00) = -235.20 kJ/mol.
+    dHf: -235.2,
+    // S: 247.0 J/(mol*K)
+    // ESTIMATE: Derived from propiophenone S° (268.0 J/(mol*K)) minus 21.0 J/(mol*K) representing liquid-phase
+    // hydrogen-bonding ordering in secondary alcohols. Calibrated from NIST SRD 69 close analogs: acetone
+    // (200.4 J/(mol*K)) -> isopropanol (180.6 J/(mol*K), Δ = -19.8 J/(mol*K)) and cyclohexanone (229.03 J/(mol*K))
+    // -> cyclohexanol (203.87 J/(mol*K), Δ = -25.16 J/(mol*K)): 268.0 - 21.0 = 247.0 J/(mol*K).
+    S: 247.0,
+    // Cp: 268.0 J/(mol*K)
+    // ESTIMATE: Derived from propiophenone Cp (240.0 J/(mol*K)) plus 28.0 J/(mol*K) representing secondary alcohol
+    // O-H librational heat capacity. Calibrated from NIST SRD 69 close analogs: acetone (126.3 J/(mol*K)) ->
+    // isopropanol (154.4 J/(mol*K), Δ = +28.1 J/(mol*K)); benchmarked against primary isomer 3-phenyl-1-propanol
+    // NIST experimental liquid Cp = 280.74 J/(mol*K) (Nichols & Wadsö, 1975) minus primary-to-secondary branch offset ~12.7 J/(mol*K):
+    // 240.0 + 28.0 = 268.0 J/(mol*K).
+    Cp: 268.0,
+    density: 0.994,
+    hazard: ['flammable'],
+    estimated: ['dHf', 'S', 'Cp'],
+    source: 'ESTIMATE (Benson group additivity / analog scaling); dHf of propiophenone from NIST SRD 69',
+  },
 };

@@ -388,6 +388,18 @@ export class LabBench {
       this.pourIntoVessel(target, 'HCl', 80, 'mL', { molarity: 1.0 });
       this.pourIntoVessel(target, 'NaBH4', 1.0, 'g');
       this.callbacks.onSelectVessel(target);
+    } else if (preset === 'propiophenone_nabh4') {
+      const target = vessels.find((v) => v.vesselType === 'beaker') ?? this.getSelectedVessel() ?? vessels[0];
+      this.selectVessel(target.id);
+      resetVesselState(target);
+      this.pourIntoVessel(target, 'PROPIOPHENONE', 0.04, 'mol');
+      this.pourIntoVessel(target, 'NaBH4', 0.01, 'mol');
+      this.pourIntoVessel(target, 'H2O', 0.02, 'mol');
+      this.callbacks.onNotice(
+        'Mixed 0.04 mol Propiophenone + 0.01 mol NaBH₄ + 0.02 mol H₂O → Reduced to 0.04 mol 1-Phenyl-1-propanol + 0.01 mol NaBO₂!',
+        'info'
+      );
+      this.callbacks.onSelectVessel(target);
     }
   }
 

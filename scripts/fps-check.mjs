@@ -150,6 +150,10 @@ async function main() {
       return !!b && !b.classList.contains('hidden');
     });
 
+    await page.click('[data-preset="propiophenone_nabh4"]');
+    await page.waitForTimeout(50);
+    const propioMetrics = await readInspectorMetrics(page);
+
     const scenarios = {
       make_water_ignited: {
         metrics: makeWaterMetrics.metrics,
@@ -181,6 +185,12 @@ async function main() {
         ventedNote: nabh4HclMetrics.ventedNote,
         warningBannerVisible,
         loggedVentInNotebook: /Vented .* mol H2 to atmosphere/.test(nabh4HclMetrics.notebookLogText),
+      },
+      propiophenone_nabh4: {
+        metrics: propioMetrics.metrics,
+        rows: propioMetrics.rows,
+        ventedNote: propioMetrics.ventedNote,
+        loggedReactionInNotebook: /Reaction fired.*(C[9₉]H[1₁][0₀]O|propiophenone)/i.test(propioMetrics.notebookLogText),
       },
     };
 

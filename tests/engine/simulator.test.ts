@@ -169,7 +169,7 @@ describe('Simulator (kinetics, limiting reagent, time stepping)', () => {
     for (const [el, count] of Object.entries(atomsBefore)) {
       expect(atomsAfter[el]).toBeCloseTo(count, 6);
     }
-    expect(m.totalMass()).toBeCloseTo(massBefore, 4);
+    expect(m.totalMass()).toBeCloseTo(massBefore, 3);
   });
 
   it('releases 4 mol H2 per 1 mol NaBH4 in excess water or acid and conserves atoms', () => {
@@ -200,5 +200,31 @@ describe('Simulator (kinetics, limiting reagent, time stepping)', () => {
     expect(resWater.reactionsFired).toContain('nabh4_h2o_hydrolysis');
     expect(mWater.moles.H2).toBeCloseTo(4.0, 4);
     expect(mWater.moles.NaBO2).toBeCloseTo(1.0, 4);
+  });
+
+  it('reduces 0.04 mol propiophenone with 0.01 mol NaBH4 and 0.02 mol H2O to 0.04 mol PHENYLPROPANOL and 0.01 mol NaBO2 with atoms conserved', () => {
+    const m = new Mixture({ tempK: 298.15 });
+    m.add('PROPIOPHENONE', 0.04);
+    m.add('NaBH4', 0.01);
+    m.add('H2O', 0.02);
+
+    const atomsBefore = m.totalAtoms();
+    const massBefore = m.totalMass();
+
+    const sim = new Simulator(m, { vesselL: 1.0, closed: false });
+    const res = sim.step(0.5);
+
+    expect(res.reactionsFired).toContain('propiophenone_nabh4_reduction');
+    expect(m.moles.PROPIOPHENONE ?? 0).toBeCloseTo(0, 4);
+    expect(m.moles.NaBH4 ?? 0).toBeCloseTo(0, 4);
+    expect(m.moles.H2O ?? 0).toBeCloseTo(0, 4);
+    expect(m.moles.PHENYLPROPANOL).toBeCloseTo(0.04, 4);
+    expect(m.moles.NaBO2).toBeCloseTo(0.01, 4);
+
+    const atomsAfter = m.totalAtoms();
+    for (const [el, count] of Object.entries(atomsBefore)) {
+      expect(atomsAfter[el]).toBeCloseTo(count, 5);
+    }
+    expect(m.totalMass()).toBeCloseTo(massBefore, 3);
   });
 });

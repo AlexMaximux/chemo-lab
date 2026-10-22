@@ -71,3 +71,24 @@ The engine contains zero DOM imports and is independently testable:
    - Watch internal gas pressure (kPa) climb according to $PV = nRT$ until the vessel exceeds `300 kPa` and triggers a **BURST** hazard with flash, shake, and safety banner.
 4. **Hazardous Reactions ($\text{Na} + \text{H}_2\text{O}$ or $\text{NaOCl} + \text{NH}_3$)**:
    - Click **`Na + H₂O Hazard`** or **`NaOCl + NH₃`** to observe vigorous gas evolution, exothermic temperature jump, explosion/toxic gas warnings, and automatic hazard logging in the Lab Notebook.
+5. **Carbonyl Reduction ($\text{Propiophenone} + \text{NaBH}_4$)**:
+   - Click **`Propiophenone + NaBH4`** to set up 0.04 mol propiophenone, 0.01 mol NaBH₄, and 0.02 mol H₂O in a beaker.
+   - Observe immediate reduction to 0.04 mol 1-phenyl-1-propanol and 0.01 mol NaBO₂ with strong exothermic warming, reaction equation display in the Inspector, and notebook logging.
+
+---
+
+## Estimated Thermodynamic Data
+
+When experimental thermodynamic data is unavailable in the NIST Chemistry WebBook (SRD 69), species entries are annotated with the `estimated` field listing which parameters are derived. In the UI, these species display an `est.` badge in the chemical drawer card and an `Estimated thermodynamic data (±10 kJ/mol)` indicator in the active vessel inspector.
+
+* **PROPIOPHENONE** ($\text{C}_9\text{H}_{10}\text{O}$, liquid, CAS 93-55-0):
+  * $\Delta_f H^\circ = -167.2\text{ kJ/mol}$ — NIST SRD 69 experimental liquid value (Colomina, Latorre, et al., 1961).
+  * $S^\circ = 268.0\text{ J/(mol}\cdot\text{K)}$ *(estimated)* — Scaled from NIST ethylbenzene liquid ($S^\circ = 255.01\text{ J/(mol}\cdot\text{K)}$) plus the NIST methylene ($-\text{CH}_2-$) increment ($+32.8\text{ J/(mol}\cdot\text{K)}$, from propylbenzene vs ethylbenzene and 1-propanol vs ethanol) minus liquid ketone dipole ordering penalty (~$19.8\text{ J/(mol}\cdot\text{K)}$).
+  * $C_p = 240.0\text{ J/(mol}\cdot\text{K)}$ *(estimated)* — Richard Fuchs (1980, *Can. J. Chem.* 58: 2305) measured $238.1\text{ J/(mol}\cdot\text{K)}$; analog scaling from NIST acetophenone ($C_p = 227.6\text{ J/(mol}\cdot\text{K)}$) plus $-\text{CH}_2-$ increment (~$12.4\text{ J/(mol}\cdot\text{K)}$) gives $240.0\text{ J/(mol}\cdot\text{K)}$.
+* **PHENYLPROPANOL** ($\text{C}_9\text{H}_{12}\text{O}$, liquid, CAS 93-54-9, 1-phenyl-1-propanol):
+  * $\Delta_f H^\circ = -235.20\text{ kJ/mol}$ *(estimated)* — Calculated from propiophenone ($-167.20\text{ kJ/mol}$) minus $68.00\text{ kJ/mol}$ for ketone $\rightarrow$ sec-alcohol reduction, calibrated from NIST analogs acetone $\rightarrow$ isopropanol ($-69.70\text{ kJ/mol}$) and cyclohexanone $\rightarrow$ cyclohexanol ($-75.90\text{ kJ/mol}$).
+  * $S^\circ = 247.0\text{ J/(mol}\cdot\text{K)}$ *(estimated)* — Calculated from propiophenone ($268.0\text{ J/(mol}\cdot\text{K)}$) minus $21.0\text{ J/(mol}\cdot\text{K)}$ for liquid alcohol hydrogen-bond ordering, calibrated from acetone $\rightarrow$ isopropanol ($-19.8\text{ J/(mol}\cdot\text{K)}$) and cyclohexanone $\rightarrow$ cyclohexanol ($-25.2\text{ J/(mol}\cdot\text{K)}$).
+  * $C_p = 268.0\text{ J/(mol}\cdot\text{K)}$ *(estimated)* — Calculated from propiophenone ($240.0\text{ J/(mol}\cdot\text{K)}$) plus $28.0\text{ J/(mol}\cdot\text{K)}$ for secondary alcohol librational mode, calibrated from acetone $\rightarrow$ isopropanol ($+28.1\text{ J/(mol}\cdot\text{K)}$) and consistent with 3-phenyl-1-propanol NIST liquid $C_p = 280.74\text{ J/(mol}\cdot\text{K)}$ minus branching offset.
+* **Reaction $\Delta H$**:
+  * `propiophenone_nabh4_reduction`: $\Delta H = -524.23\text{ kJ/mol}$ (by Hess's law).
+  * Per-ketone enthalpy: $-131.06\text{ kJ/mol}$, within $1.70\text{ kJ/mol}$ of the acetone reduction analog ($-132.76\text{ kJ/mol}$, well within the $\pm 20\text{ kJ/mol}$ sanity threshold).

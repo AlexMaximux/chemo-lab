@@ -194,5 +194,13 @@ describe('REACTIONS table', () => {
     expect(acetoneRed).toBeDefined();
     expect(acetoneRed?.reactants.CH3COCH3).toBe(4);
     expect(acetoneRed?.products.C3H8O).toBe(4);
+
+    const propioRed = REACTIONS.find((r) => r.id === 'propiophenone_nabh4_reduction');
+    expect(propioRed).toBeDefined();
+    expect(propioRed?.reactants.PROPIOPHENONE).toBe(4);
+    expect(propioRed?.reactants.NaBH4).toBe(1);
+    expect(propioRed?.reactants.H2O).toBe(2);
+    expect(propioRed?.products.PHENYLPROPANOL).toBe(4);
+    expect(propioRed?.products.NaBO2).toBe(1);
   });
 });

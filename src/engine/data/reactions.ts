@@ -531,4 +531,20 @@ export const REACTIONS: Reaction[] = [
     hazard: ['flammable'],
     source: 'NIST Chemistry WebBook (SRD 69) / CRC Handbook, 104th Ed.',
   },
+  {
+    id: 'propiophenone_nabh4_reduction',
+    reactants: { PROPIOPHENONE: 4, NaBH4: 1, H2O: 2 },
+    products: { PHENYLPROPANOL: 4, NaBO2: 1 },
+    // dH computed by Hess's law from species values:
+    // Products: 4 * (-235.20) + 1 * (-1012.49) = -1953.29 kJ
+    // Reactants: 4 * (-167.20) + 1 * (-188.60) + 2 * (-285.83) = -1429.06 kJ
+    // dH = -1953.29 - (-1429.06) = -524.23 kJ/mol
+    // Sanity check: per-ketone dH = -524.23 / 4 = -131.06 kJ/mol (within 1.70 kJ/mol of acetone -132.76 kJ/mol, << 20 kJ/mol threshold)
+    dH: -524.23,
+    Ea: 26.0,
+    conditions: {},
+    reversible: false,
+    hazard: ['flammable'],
+    source: 'ESTIMATE (Benson group additivity / analog scaling); NIST SRD 69 / CRC Handbook, 104th Ed.',
+  },
 ];

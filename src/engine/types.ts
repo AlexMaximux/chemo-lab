@@ -14,6 +14,7 @@ export interface Species {
   hazard?: string[];
   ka?: number;
   kb?: number;
+  estimated?: string[];
   source: string;
 }
 

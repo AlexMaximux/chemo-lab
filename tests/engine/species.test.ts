@@ -165,4 +165,19 @@ describe('SPECIES dataset', () => {
     expect(SPECIES['CH3COCH3']).toBeDefined();
     expect(SPECIES['C3H8O']).toBeDefined();
   });
+
+  it('includes PROPIOPHENONE (molar mass 134.18 ±0.05) and PHENYLPROPANOL (molar mass 136.19 ±0.05) with estimated fields', () => {
+    const propio = SPECIES['PROPIOPHENONE'];
+    expect(propio).toBeDefined();
+    expect(propio.phase).toBe('l');
+    expect(Math.abs(propio.molarMass - 134.18)).toBeLessThanOrEqual(0.05);
+    expect(propio.dHf).toBeCloseTo(-167.2, 1);
+    expect(propio.estimated).toEqual(['S', 'Cp']);
+
+    const phenyl = SPECIES['PHENYLPROPANOL'];
+    expect(phenyl).toBeDefined();
+    expect(phenyl.phase).toBe('l');
+    expect(Math.abs(phenyl.molarMass - 136.19)).toBeLessThanOrEqual(0.05);
+    expect(phenyl.estimated).toEqual(['dHf', 'S', 'Cp']);
+  });
 });
