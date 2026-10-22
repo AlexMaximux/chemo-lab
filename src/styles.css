@@ -49,8 +49,8 @@ body {
 
 #app {
   display: grid;
-  grid-template-rows: 52px 1fr 228px;
-  grid-template-columns: 1fr 352px;
+  grid-template-rows: 52px minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1fr) 352px;
   grid-template-areas:
     'header header'
     'bench notebook'
@@ -59,6 +59,7 @@ body {
   height: 100vh;
   min-width: 1024px;
   min-height: 640px;
+  overflow: hidden;
 }
 
 /* ==================== TOP INSTRUMENT HEADER ==================== */
@@ -658,6 +659,9 @@ body {
 /* ==================== BOTTOM TOOLBAR & 60+ CHEMICAL DRAWER ==================== */
 .lab-toolbar {
   grid-area: toolbar;
+  height: 220px;
+  min-height: 220px;
+  max-height: 220px;
   background: var(--bg-panel);
   border-top: 1px solid var(--border-strong);
   padding: 8px 12px;
@@ -668,30 +672,40 @@ body {
 
 .toolbar-layout {
   display: grid;
-  grid-template-columns: 330px 1fr;
-  gap: 12px;
+  grid-template-columns: 334px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 8px;
   height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .toolbar-equipment-pane {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-right: 12px;
+  padding-right: 8px;
   border-right: 1px solid var(--border-subtle);
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .pane-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
+  min-height: 16px;
 }
 
 .pane-title {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
   color: var(--accent-primary);
 }
 
@@ -702,10 +716,11 @@ body {
 
 .equipment-strip {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  grid-template-rows: repeat(2, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(2, 68px);
   gap: 5px;
-  flex: 1;
+  min-height: 0;
+  align-content: start;
 }
 
 .equip-card {
@@ -714,7 +729,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 4px 2px;
+  padding: 4px 1px;
   border-radius: 7px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
@@ -722,7 +737,11 @@ body {
   cursor: grab;
   transition: all 140ms ease;
   text-align: center;
-  min-height: 58px;
+  height: 68px;
+  min-height: 64px;
+  max-height: 72px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .equip-card:hover {
@@ -735,21 +754,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
 }
 
 .equip-icon svg {
   display: block;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
 }
 
 .equip-name {
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1.15;
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -760,14 +779,18 @@ body {
   flex-direction: column;
   gap: 6px;
   height: 100%;
+  min-height: 0;
+  max-height: 100%;
   min-width: 0;
+  overflow: hidden;
 }
 
 .chem-drawer-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: nowrap;
+  flex-shrink: 0;
   min-width: 0;
 }
 
@@ -775,26 +798,26 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  width: 192px;
+  width: 110px;
   flex-shrink: 0;
 }
 
 .search-icon {
   position: absolute;
-  left: 7px;
+  left: 5px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 10px;
   pointer-events: none;
 }
 
 .chem-search-input {
   width: 100%;
-  padding: 4px 30px 4px 22px;
+  padding: 4px 24px 4px 16px;
   border-radius: 6px;
   background: #090d14;
   border: 1px solid var(--border-subtle);
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 9.5px;
 }
 
 .chem-search-input:focus {
@@ -804,10 +827,10 @@ body {
 
 .chem-count-badge {
   position: absolute;
-  right: 5px;
+  right: 3px;
   font-family: var(--font-mono);
-  font-size: 9.5px;
-  padding: 1px 4px;
+  font-size: 8.5px;
+  padding: 1px 3px;
   border-radius: 999px;
   background: var(--bg-elevated);
   color: var(--accent-primary);
@@ -822,16 +845,17 @@ body {
 }
 
 .tab-scroll-arrow {
-  width: 20px;
-  height: 24px;
-  border-radius: 5px;
+  width: 14px;
+  height: 20px;
+  border-radius: 4px;
   border: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 11px;
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
+  padding: 0;
 }
 
 .tab-scroll-arrow:hover {
@@ -842,7 +866,7 @@ body {
 .chem-category-tabs {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 1px;
   overflow-x: auto;
   scrollbar-width: none;
   flex: 1;
@@ -855,12 +879,12 @@ body {
 
 .cat-tab {
   flex-shrink: 0;
-  padding: 4px 7px;
-  border-radius: 5px;
+  padding: 3px 3px;
+  border-radius: 4px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 10.5px;
+  font-size: 8.5px;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -880,25 +904,28 @@ body {
 .pour-rate-control {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
 
 .pour-rate-control input[type='range'] {
-  width: 54px;
+  width: 42px;
   accent-color: var(--accent-primary);
 }
 
 .chem-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  grid-auto-rows: max-content;
   gap: 7px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
   flex: 1;
+  min-height: 0;
 }
 
 .chem-card {
@@ -911,8 +938,7 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   cursor: grab;
-  content-visibility: auto;
-  contain-intrinsic-size: 170px 86px;
+  min-width: 0;
 }
 
 .chem-card:hover {
@@ -980,11 +1006,10 @@ body {
 }
 
 .chem-name {
-  font-size: 10.5px;
+  font-size: 10px;
+  line-height: 1.2;
   color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
 }
 
 .chem-meta {

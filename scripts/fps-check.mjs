@@ -1,73 +1,14 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
-import http from 'node:http';
+import {
+  VIEWPORTS,
+  ensureDevServer,
+  launchBrowser,
+  loadPlaywright,
+  runLayoutSuite,
+} from './layout-check.mjs';
 
 const DEFAULT_URL = process.env.CHEM_LAB_URL || 'http://localhost:5173/';
 const MIN_REQUIRED_FPS = 45;
-
-async function loadPlaywright() {
-  try {
-    return await import('playwright');
-  } catch {
-    return await import(
-      '/Users/nersibayat/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs'
-    );
-  }
-}
-
-function checkServerAlive(url) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      res.resume();
-      resolve(res.statusCode >= 200 && res.statusCode < 500);
-    });
-    req.on('error', (err) => {
-      if (err && (err.code === 'EPERM' || err.code === 'EACCES')) {
-        reject(err);
-      } else {
-        resolve(false);
-      }
-    });
-    req.setTimeout(1000, () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-async function ensureDevServer(url) {
-  if (await checkServerAlive(url)) {
-    return { proc: null, url };
-  }
-
-  const proc = spawn('npx', ['vite', '--port', '5173'], {
-    stdio: 'ignore',
-    detached: false,
-  });
-
-  for (let i = 0; i < 40; i++) {
-    if (await checkServerAlive(url)) {
-      return { proc, url };
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-
-  proc.kill('SIGTERM');
-  throw new Error(`Timed out waiting for Vite dev server at ${url}`);
-}
-
-async function launchBrowser(chromium) {
-  const args = ['--use-gl=angle', '--use-angle=swiftshader'];
-  try {
-    return await chromium.launch({ headless: true, args });
-  } catch {
-    return await chromium.launch({
-      headless: true,
-      executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      args,
-    });
-  }
-}
 
 async function measureRafFps(page, durationMs = 3000) {
   return await page.evaluate((ms) => {
@@ -112,17 +53,45 @@ async function main() {
 
     await page.goto(url, { waitUntil: 'load' });
     await page.waitForSelector('#bench-canvas', { state: 'visible' });
-    // Let initial first paint settle
-    await page.waitForTimeout(500);
 
-    // 1. Measure idle rAF FPS over 3 seconds
+    // 1. Verify layout invariants across 1280x720, 1366x768, and 1440x900
+    const rawLayout = await runLayoutSuite(page, VIEWPORTS);
+    const layoutSummary = {};
+    for (const [vpKey, data] of Object.entries(rawLayout)) {
+      layoutSummary[vpKey] = {
+        toolbarHeight: data.toolbarHeight,
+        equipStripHeight: data.equipStripHeight,
+        equipCardCount: data.equipCardCount,
+        minEquipCardHeight: data.minEquipCardHeight,
+        maxEquipCardHeight: data.maxEquipCardHeight,
+        allCardsUnder100px: data.allCardsUnder100px,
+        allIconsInViewport: data.allIconsInViewport,
+        allNamesInViewport: data.allNamesInViewport,
+        docScrollHeight: data.docScrollHeight,
+        viewportHeight: data.viewportHeight,
+        noPageScroll: data.noPageScroll,
+        chemGridClientHeight: data.chemGridClientHeight,
+        chemGridScrollHeight: data.chemGridScrollHeight,
+        chemDrawerScrollsInternally: data.chemDrawerScrollsInternally,
+        noHorizontalClip: data.noHorizontalClip,
+        horizontallyClippedCount: data.horizontallyClippedCount,
+        passed: data.passed,
+      };
+    }
+    const allLayoutsPassed = Object.values(rawLayout).every((r) => r.passed);
+
+    // Return to 1280x720 for FPS benchmark
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.waitForTimeout(300);
+
+    // 2. Measure idle rAF FPS over 3 seconds
     const idleResult = await measureRafFps(page, 3000);
 
-    // 2. Run make-water scenario (2H2 + O2 -> 2H2O) + ignite (Spark)
+    // 3. Run make-water scenario (2H2 + O2 -> 2H2O) + ignite (Spark)
     await page.click('[data-preset="make_water"]');
     await page.click('#btn-global-ignite');
 
-    // 3. Measure post-ignition rAF FPS over 3 seconds
+    // 4. Measure post-ignition rAF FPS over 3 seconds
     const afterIgniteResult = await measureRafFps(page, 3000);
 
     // Verify water was synthesized in inspector
@@ -137,10 +106,13 @@ async function main() {
       minRequiredFps: MIN_REQUIRED_FPS,
       synthesizedWater,
       consoleErrors: consoleErrors.length,
+      layoutChecks: layoutSummary,
+      allLayoutsPassed,
       passed:
         idleResult.fps >= MIN_REQUIRED_FPS &&
         afterIgniteResult.fps >= MIN_REQUIRED_FPS &&
         synthesizedWater &&
+        allLayoutsPassed &&
         consoleErrors.length === 0,
     };
 
@@ -158,6 +130,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('FPS check failed:', err);
+  console.error('FPS & layout check failed:', err);
   process.exit(1);
 });

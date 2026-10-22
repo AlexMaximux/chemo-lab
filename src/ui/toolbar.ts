@@ -207,7 +207,7 @@ export class ToolbarAndInspectorUI {
                 type="search"
                 id="chem-search-input"
                 class="chem-search-input"
-                placeholder="Search ${allSpeciesCount} chemicals (H2, O2, HCl, NaOH)..."
+                placeholder="Search ${allSpeciesCount} chemicals..."
                 aria-label="Search chemicals by formula, name, or hazard"
                 autocomplete="off"
               />
@@ -674,25 +674,25 @@ export class ToolbarAndInspectorUI {
   private getEquipmentSvgIcon(type: string): string {
     switch (type) {
       case 'beaker':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M5 4h14l-1 15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 4z" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/><path d="M6 12h12" stroke="#38bdf8" stroke-width="1.5"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><path d="M5 4h14l-1 15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 4z" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/><path d="M6 12h12" stroke="#38bdf8" stroke-width="1.5"/></svg>`;
       case 'flask':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M9 3h6m-5 0v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><path d="M9 3h6m-5 0v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
       case 'test_tube':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M8 3h8m-7 0v14a3 3 0 0 0 6 0V3" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><path d="M8 3h8m-7 0v14a3 3 0 0 0 6 0V3" fill="rgba(34,211,238,0.15)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
       case 'gas_jar':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="6" y="4" width="12" height="17" rx="2" fill="rgba(56,189,248,0.18)" stroke="#38bdf8" stroke-width="2"/><path d="M4 4h16" stroke="#e2e8f0" stroke-width="2"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><rect x="6" y="4" width="12" height="17" rx="2" fill="rgba(56,189,248,0.18)" stroke="#38bdf8" stroke-width="2"/><path d="M4 4h16" stroke="#e2e8f0" stroke-width="2"/></svg>`;
       case 'stopper':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M6 7h12l-1.5 10h-9L6 7z" fill="rgba(251,146,60,0.28)" stroke="#fb923c" stroke-width="1.8"/><path d="M4 7h16" stroke="#fdba74" stroke-width="2"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><path d="M6 7h12l-1.5 10h-9L6 7z" fill="rgba(251,146,60,0.28)" stroke="#fb923c" stroke-width="1.8"/><path d="M4 7h16" stroke="#fdba74" stroke-width="2"/></svg>`;
       case 'burner':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M12 3c2 3 4 5 4 8a4 4 0 0 1-8 0c0-3 2-5 4-8z" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1.8"/><path d="M7 21h10m-5-6v6" stroke="#94a3b8" stroke-width="1.8"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><path d="M12 3c2 3 4 5 4 8a4 4 0 0 1-8 0c0-3 2-5 4-8z" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1.8"/><path d="M7 21h10m-5-6v6" stroke="#94a3b8" stroke-width="1.8"/></svg>`;
       case 'scale':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="3" y="12" width="18" height="8" rx="2" fill="rgba(34,211,238,0.14)" stroke="#22d3ee" stroke-width="1.8"/><path d="M6 8h12m-6 0v4" stroke="#e2e8f0" stroke-width="1.8"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><rect x="3" y="12" width="18" height="8" rx="2" fill="rgba(34,211,238,0.14)" stroke="#22d3ee" stroke-width="1.8"/><path d="M6 8h12m-6 0v4" stroke="#e2e8f0" stroke-width="1.8"/></svg>`;
       case 'thermometer':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z" fill="rgba(244,63,94,0.22)" stroke="#fb7185" stroke-width="1.8"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z" fill="rgba(244,63,94,0.22)" stroke="#fb7185" stroke-width="1.8"/></svg>`;
       case 'ph_meter':
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="6" y="3" width="12" height="7" rx="1.5" fill="rgba(16,185,129,0.2)" stroke="#34d399" stroke-width="1.8"/><path d="M12 10v11" stroke="#cbd5e1" stroke-width="1.8"/><circle cx="12" cy="19" r="2" fill="#34d399"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><rect x="6" y="3" width="12" height="7" rx="1.5" fill="rgba(16,185,129,0.2)" stroke="#34d399" stroke-width="1.8"/><path d="M12 10v11" stroke="#cbd5e1" stroke-width="1.8"/><circle cx="12" cy="19" r="2" fill="#34d399"/></svg>`;
       default:
-        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M11 3h2v6l2 10-3 2-3-2 2-10V3z" fill="rgba(34,211,238,0.18)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><path d="M11 3h2v6l2 10-3 2-3-2 2-10V3z" fill="rgba(34,211,238,0.18)" stroke="#22d3ee" stroke-width="1.8"/></svg>`;
     }
   }
 
