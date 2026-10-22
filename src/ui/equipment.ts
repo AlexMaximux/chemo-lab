@@ -1,0 +1,721 @@
+import { SPECIES, Species } from '../engine/data/species';
+import { REACTIONS } from '../engine/data/reactions';
+import { Mixture } from '../engine/mixture';
+import { Simulator } from '../engine/simulator';
+import { pH } from '../engine/solution';
+import { Reaction, StepResult } from '../engine/types';
+
+export type EquipmentType =
+  | 'beaker'
+  | 'flask'
+  | 'test_tube'
+  | 'burner'
+  | 'scale'
+  | 'pipette'
+  | 'thermometer'
+  | 'ph_meter';
+
+export type VesselType = 'beaker' | 'flask' | 'test_tube';
+
+export type PourUnit = 'mL' | 'g' | 'mol';
+
+export type ChemicalCategory =
+  | 'all'
+  | 'gases'
+  | 'acids'
+  | 'bases'
+  | 'salts'
+  | 'metals'
+  | 'organics'
+  | 'liquids_oxides';
+
+export interface EquipmentCatalogItem {
+  type: EquipmentType;
+  label: string;
+  subtitle: string;
+  group: 'vessel' | 'heat' | 'meter';
+  capacityL?: number;
+}
+
+export const EQUIPMENT_CATALOG: EquipmentCatalogItem[] = [
+  { type: 'beaker', label: 'Beaker', subtitle: '250 mL Borosilicate', group: 'vessel', capacityL: 0.25 },
+  { type: 'flask', label: 'Erlenmeyer Flask', subtitle: '250 mL Conical', group: 'vessel', capacityL: 0.25 },
+  { type: 'test_tube', label: 'Test Tube', subtitle: '50 mL Rack Tube', group: 'vessel', capacityL: 0.05 },
+  { type: 'burner', label: 'Bunsen Burner', subtitle: 'Adjustable Heat Source', group: 'heat' },
+  { type: 'scale', label: 'Analytical Scale', subtitle: '0.01 g Precision', group: 'meter' },
+  { type: 'thermometer', label: 'Thermometer', subtitle: 'Digital K / °C Probe', group: 'meter' },
+  { type: 'ph_meter', label: 'pH Meter', subtitle: 'Glass Electrode', group: 'meter' },
+  { type: 'pipette', label: 'Graduated Pipette', subtitle: '10 mL Transfer', group: 'meter' },
+];
+
+export const VESSEL_CAPACITIES_L: Record<VesselType, number> = {
+  beaker: 0.25,
+  flask: 0.25,
+  test_tube: 0.05,
+};
+
+export interface LabVessel {
+  id: string;
+  kind: 'vessel';
+  vesselType: VesselType;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  capacityL: number;
+  closed: boolean;
+  mixture: Mixture;
+  simulator: Simulator;
+  lastStepResult: StepResult;
+  lastReactionsFired: string[];
+  overflowWarning: boolean;
+  burst: boolean;
+}
+
+export interface LabTool {
+  id: string;
+  kind: 'tool';
+  toolType: Exclude<EquipmentType, VesselType>;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  active: boolean; // e.g. burner flame ON/OFF
+  powerWatts: number;
+}
+
+export type BenchItem = LabVessel | LabTool;
+
+export interface PourOptions {
+  molarity?: number; // Default 1.0 M for 'aq' solutions
+}
+
+export interface PourCalculation {
+  moles: number;
+  volumeL: number;
+  massG: number;
+}
+
+export interface PourResult {
+  addedMoles: number;
+  addedVolumeL: number;
+  overflowVolumeL: number;
+  overflowed: boolean;
+  ignored: boolean;
+  message: string;
+}
+
+export interface TransferResult {
+  transferredMoles: number;
+  transferredVolumeL: number;
+  overflowed: boolean;
+  ignored: boolean;
+  message: string;
+}
+
+let nextEquipmentCounter = 1;
+
+export function createVessel(
+  vesselType: VesselType,
+  x: number,
+  y: number,
+  customLabel?: string
+): LabVessel {
+  const id = `vessel_${nextEquipmentCounter++}`;
+  const capacityL = VESSEL_CAPACITIES_L[vesselType];
+  const mixture = new Mixture();
+  const simulator = new Simulator(mixture, {
+    vesselL: capacityL,
+    closed: false,
+  });
+
+  const dims =
+    vesselType === 'beaker'
+      ? { width: 112, height: 140, defaultLabel: 'Beaker 250mL' }
+      : vesselType === 'flask'
+        ? { width: 116, height: 148, defaultLabel: 'Flask 250mL' }
+        : { width: 72, height: 144, defaultLabel: 'Test Tube 50mL' };
+
+  return {
+    id,
+    kind: 'vessel',
+    vesselType,
+    label: customLabel ?? dims.defaultLabel,
+    x,
+    y,
+    width: dims.width,
+    height: dims.height,
+    capacityL,
+    closed: false,
+    mixture,
+    simulator,
+    lastStepResult: {
+      reactionsFired: [],
+      heatJ: 0,
+      tempK: mixture.tempK,
+      pressureKPa: 0,
+      hazards: [],
+    },
+    lastReactionsFired: [],
+    overflowWarning: false,
+    burst: false,
+  };
+}
+
+export function createTool(
+  toolType: Exclude<EquipmentType, VesselType>,
+  x: number,
+  y: number
+): LabTool {
+  const id = `tool_${nextEquipmentCounter++}`;
+  const meta: Record<
+    Exclude<EquipmentType, VesselType>,
+    { label: string; width: number; height: number; active: boolean; powerWatts: number }
+  > = {
+    burner: { label: 'Bunsen Burner', width: 88, height: 112, active: true, powerWatts: 1800 },
+    scale: { label: 'Analytical Scale', width: 148, height: 54, active: true, powerWatts: 0 },
+    pipette: { label: 'Pipette (10 mL)', width: 56, height: 120, active: false, powerWatts: 0 },
+    thermometer: { label: 'Thermometer', width: 56, height: 128, active: true, powerWatts: 0 },
+    ph_meter: { label: 'pH Probe', width: 76, height: 120, active: true, powerWatts: 0 },
+  };
+  const cfg = meta[toolType];
+  return {
+    id,
+    kind: 'tool',
+    toolType,
+    label: cfg.label,
+    x,
+    y,
+    width: cfg.width,
+    height: cfg.height,
+    active: cfg.active,
+    powerWatts: cfg.powerWatts,
+  };
+}
+
+export function isVesselType(type: EquipmentType): type is VesselType {
+  return type === 'beaker' || type === 'flask' || type === 'test_tube';
+}
+
+export function calculatePourAmount(
+  speciesId: string,
+  amount: number,
+  unit: PourUnit,
+  opts?: PourOptions
+): PourCalculation {
+  const sp = SPECIES[speciesId];
+  if (!sp || !Number.isFinite(amount) || amount <= 0) {
+    return { moles: 0, volumeL: 0, massG: 0 };
+  }
+
+  const molarity = opts?.molarity && opts.molarity > 0 ? opts.molarity : 1.0;
+  const molarVolumeGasL = 24.4654; // Ideal gas molar volume at 298.15 K, 101.325 kPa
+
+  let moles = 0;
+  let volumeL = 0;
+
+  if (unit === 'mL') {
+    const reqVolumeL = amount / 1000.0;
+    if (sp.phase === 'l') {
+      const density = sp.density ?? 1.0; // g/mL
+      const massG = amount * density;
+      moles = massG / sp.molarMass;
+      volumeL = reqVolumeL;
+    } else if (sp.phase === 'aq') {
+      volumeL = reqVolumeL;
+      moles = reqVolumeL * molarity;
+    } else if (sp.phase === 's') {
+      const density = sp.density ?? 2.0; // g/cm^3
+      const massG = amount * density;
+      moles = massG / sp.molarMass;
+      volumeL = reqVolumeL;
+    } else {
+      // gas ('g'): occupies vessel headspace rather than liquid volume
+      moles = reqVolumeL / molarVolumeGasL;
+      volumeL = 0;
+    }
+  } else if (unit === 'g') {
+    moles = amount / sp.molarMass;
+    if (sp.phase === 'l') {
+      const density = sp.density ?? 1.0;
+      volumeL = amount / (density * 1000.0);
+    } else if (sp.phase === 'aq') {
+      volumeL = moles / molarity;
+    } else if (sp.phase === 's') {
+      const density = sp.density ?? 2.0;
+      volumeL = amount / (density * 1000.0);
+    } else {
+      volumeL = 0;
+    }
+  } else {
+    // unit === 'mol'
+    moles = amount;
+    if (sp.phase === 'l') {
+      const density = sp.density ?? 1.0;
+      volumeL = (moles * sp.molarMass) / (density * 1000.0);
+    } else if (sp.phase === 'aq') {
+      volumeL = moles / molarity;
+    } else if (sp.phase === 's') {
+      const density = sp.density ?? 2.0;
+      volumeL = (moles * sp.molarMass) / (density * 1000.0);
+    } else {
+      volumeL = 0;
+    }
+  }
+
+  return {
+    moles,
+    volumeL: Math.max(0, volumeL),
+    massG: moles * sp.molarMass,
+  };
+}
+
+export function pourChemical(
+  vessel: LabVessel,
+  speciesId: string,
+  amount: number,
+  unit: PourUnit,
+  opts?: PourOptions
+): PourResult {
+  const sp = SPECIES[speciesId];
+  if (!sp) {
+    return {
+      addedMoles: 0,
+      addedVolumeL: 0,
+      overflowVolumeL: 0,
+      overflowed: false,
+      ignored: true,
+      message: `Unknown chemical species: ${speciesId}`,
+    };
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return {
+      addedMoles: 0,
+      addedVolumeL: 0,
+      overflowVolumeL: 0,
+      overflowed: false,
+      ignored: true,
+      message: 'Pour amount must be a positive number greater than zero.',
+    };
+  }
+
+  const calc = calculatePourAmount(speciesId, amount, unit, opts);
+  if (calc.moles <= 0) {
+    return {
+      addedMoles: 0,
+      addedVolumeL: 0,
+      overflowVolumeL: 0,
+      overflowed: false,
+      ignored: true,
+      message: 'Calculated pour amount is zero.',
+    };
+  }
+
+  const currentVolumeL = Math.max(0, vessel.mixture.volumeL);
+  const remainingL = Math.max(0, vessel.capacityL - currentVolumeL);
+
+  let actualMoles = calc.moles;
+  let actualVolumeL = calc.volumeL;
+  let overflowVolumeL = 0;
+  let overflowed = false;
+
+  if (calc.volumeL > 0) {
+    if (remainingL <= 1e-9) {
+      vessel.overflowWarning = true;
+      return {
+        addedMoles: 0,
+        addedVolumeL: 0,
+        overflowVolumeL: calc.volumeL,
+        overflowed: true,
+        ignored: false,
+        message: `${vessel.label} is full (${(vessel.capacityL * 1000).toFixed(0)} mL max). Overflow prevented!`,
+      };
+    }
+
+    if (calc.volumeL > remainingL + 1e-9) {
+      const fraction = remainingL / calc.volumeL;
+      actualVolumeL = remainingL;
+      actualMoles = calc.moles * fraction;
+      overflowVolumeL = calc.volumeL - remainingL;
+      overflowed = true;
+      vessel.overflowWarning = true;
+    }
+  }
+
+  const volBefore = vessel.mixture.volumeL;
+  vessel.mixture.add(speciesId, actualMoles);
+
+  // Mixture.add automatically increases volumeL for 'l' phase when explicitVolume is false.
+  // Ensure total volume change equals actualVolumeL and stays clamped in [0, vessel.capacityL].
+  const targetVolumeL = Math.max(0, Math.min(vessel.capacityL, volBefore + actualVolumeL));
+  vessel.mixture.volumeL = targetVolumeL;
+
+  const addedLabel =
+    unit === 'mL'
+      ? `${(actualVolumeL * 1000).toFixed(1)} mL`
+      : unit === 'g'
+        ? `${(actualMoles * sp.molarMass).toFixed(2)} g`
+        : `${actualMoles.toFixed(3)} mol`;
+
+  return {
+    addedMoles: actualMoles,
+    addedVolumeL: actualVolumeL,
+    overflowVolumeL,
+    overflowed,
+    ignored: false,
+    message: overflowed
+      ? `Overflow! Clamped ${sp.formula} pour to ${addedLabel} (${vessel.label} at capacity).`
+      : `Added ${addedLabel} (${actualMoles.toFixed(4)} mol) of ${sp.name} (${sp.formula}) to ${vessel.label}.`,
+  };
+}
+
+export function transferBetweenVessels(
+  source: LabVessel,
+  target: LabVessel,
+  volumeML: number
+): TransferResult {
+  if (source.id === target.id) {
+    return {
+      transferredMoles: 0,
+      transferredVolumeL: 0,
+      overflowed: false,
+      ignored: true,
+      message: 'Cannot transfer from a vessel into itself.',
+    };
+  }
+
+  if (!Number.isFinite(volumeML) || volumeML <= 0) {
+    return {
+      transferredMoles: 0,
+      transferredVolumeL: 0,
+      overflowed: false,
+      ignored: true,
+      message: 'Transfer volume must be greater than zero.',
+    };
+  }
+
+  const totalSourceMoles = Object.values(source.mixture.moles).reduce(
+    (sum, n) => sum + (n > 0 ? n : 0),
+    0
+  );
+
+  if (totalSourceMoles <= 1e-12) {
+    return {
+      transferredMoles: 0,
+      transferredVolumeL: 0,
+      overflowed: false,
+      ignored: true,
+      message: `${source.label} is empty — nothing to pour.`,
+    };
+  }
+
+  const reqVolumeL = volumeML / 1000.0;
+  const sourceVolL = Math.max(0, source.mixture.volumeL);
+  const targetRemainingL = Math.max(0, target.capacityL - Math.max(0, target.mixture.volumeL));
+
+  if (sourceVolL > 0 && targetRemainingL <= 1e-9) {
+    target.overflowWarning = true;
+    return {
+      transferredMoles: 0,
+      transferredVolumeL: 0,
+      overflowed: true,
+      ignored: false,
+      message: `${target.label} is already full! Overflow prevented.`,
+    };
+  }
+
+  let actualTransferVolL = 0;
+  let fraction = 1.0;
+  let overflowed = false;
+
+  if (sourceVolL > 0) {
+    const desiredFromSourceL = Math.min(sourceVolL, reqVolumeL);
+    if (desiredFromSourceL > targetRemainingL + 1e-9) {
+      actualTransferVolL = targetRemainingL;
+      overflowed = true;
+      target.overflowWarning = true;
+    } else {
+      actualTransferVolL = desiredFromSourceL;
+    }
+    fraction = Math.min(1.0, actualTransferVolL / sourceVolL);
+  } else {
+    // Gas-only or dry solid transfer where volumeL === 0
+    fraction = Math.min(1.0, reqVolumeL / Math.max(0.05, source.capacityL));
+  }
+
+  if (fraction <= 1e-12) {
+    return {
+      transferredMoles: 0,
+      transferredVolumeL: 0,
+      overflowed,
+      ignored: true,
+      message: 'No volume could be transferred.',
+    };
+  }
+
+  // Heat-capacity weighted temperature mixing
+  const targetCpBefore = Math.max(target.mixture.heatCapacity(), 10);
+  const transferredCp = Math.max(source.mixture.heatCapacity() * fraction, 10);
+  const mixedTempK =
+    Object.keys(target.mixture.moles).length > 0
+      ? (target.mixture.tempK * targetCpBefore + source.mixture.tempK * transferredCp) /
+        (targetCpBefore + transferredCp)
+      : source.mixture.tempK;
+
+  let transferredMolesTotal = 0;
+  const targetVolBefore = Math.max(0, target.mixture.volumeL);
+
+  for (const [spId, n] of Object.entries(source.mixture.moles)) {
+    if (n <= 1e-12) continue;
+    const dMoles = n * fraction;
+    const remaining = n - dMoles;
+    if (remaining <= 1e-12) {
+      delete source.mixture.moles[spId];
+    } else {
+      source.mixture.moles[spId] = remaining;
+    }
+    target.mixture.add(spId, dMoles);
+    transferredMolesTotal += dMoles;
+  }
+
+  source.mixture.volumeL = Math.max(0, sourceVolL - actualTransferVolL);
+  target.mixture.volumeL = Math.max(
+    0,
+    Math.min(target.capacityL, targetVolBefore + actualTransferVolL)
+  );
+  target.mixture.tempK = mixedTempK;
+
+  return {
+    transferredMoles: transferredMolesTotal,
+    transferredVolumeL: actualTransferVolL,
+    overflowed,
+    ignored: false,
+    message: overflowed
+      ? `Transferred ${(actualTransferVolL * 1000).toFixed(1)} mL from ${source.label} to ${target.label} (clamped at capacity).`
+      : `Transferred ${(actualTransferVolL * 1000).toFixed(1)} mL from ${source.label} to ${target.label}.`,
+  };
+}
+
+function parseHexColor(hex: string): [number, number, number] {
+  const clean = hex.replace('#', '').trim();
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return [r, g, b];
+  }
+  const r = parseInt(clean.slice(0, 2), 16) || 200;
+  const g = parseInt(clean.slice(2, 4), 16) || 235;
+  const b = parseInt(clean.slice(4, 6), 16) || 255;
+  return [r, g, b];
+}
+
+export function blendMixtureColor(mixture: Mixture): string {
+  // Default base water/solution tint
+  let rSum = 195 * 0.15;
+  let gSum = 232 * 0.15;
+  let bSum = 255 * 0.15;
+  let weightSum = 0.15;
+  let coloredSoluteWeight = 0;
+
+  for (const [id, moles] of Object.entries(mixture.moles)) {
+    if (moles <= 1e-9) continue;
+    const sp = SPECIES[id];
+    if (!sp) continue;
+    // Skip pure gases unless dissolved, and weight colored solutes strongly so color transitions are vivid
+    if (sp.phase === 'g') continue;
+
+    if (sp.color && id !== 'H2O') {
+      const [r, g, b] = parseHexColor(sp.color);
+      const w = Math.max(0.05, moles * 12);
+      rSum += r * w;
+      gSum += g * w;
+      bSum += b * w;
+      weightSum += w;
+      coloredSoluteWeight += w;
+    } else if (id === 'H2O') {
+      const w = Math.min(0.4, moles * 0.01);
+      rSum += 205 * w;
+      gSum += 236 * w;
+      bSum += 255 * w;
+      weightSum += w;
+    }
+  }
+
+  // Slight pH tinting if clear acid/base solution so neutralization is visually rewarding
+  if (coloredSoluteWeight < 0.05 && mixture.volumeL > 0) {
+    const currentPh = pH(mixture);
+    if (currentPh < 5.5) {
+      const intensity = Math.min(1, (7 - currentPh) / 6) * 0.25;
+      rSum += 255 * intensity;
+      gSum += 160 * intensity;
+      bSum += 185 * intensity;
+      weightSum += intensity;
+    } else if (currentPh > 8.5) {
+      const intensity = Math.min(1, (currentPh - 7) / 6) * 0.25;
+      rSum += 145 * intensity;
+      gSum += 210 * intensity;
+      bSum += 255 * intensity;
+      weightSum += intensity;
+    }
+  }
+
+  const r = Math.round(Math.max(0, Math.min(255, rSum / weightSum)));
+  const g = Math.round(Math.max(0, Math.min(255, gSum / weightSum)));
+  const b = Math.round(Math.max(0, Math.min(255, bSum / weightSum)));
+  const alpha = Math.min(0.84, 0.48 + Math.min(0.36, coloredSoluteWeight * 0.25));
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`;
+}
+
+export function getPrecipitateInfo(mixture: Mixture): { massG: number; color: string; formulas: string[] } {
+  let totalMassG = 0;
+  let rSum = 0;
+  let gSum = 0;
+  let bSum = 0;
+  let wSum = 0;
+  const formulas: string[] = [];
+
+  for (const [id, moles] of Object.entries(mixture.moles)) {
+    if (moles <= 1e-6) continue;
+    const sp = SPECIES[id];
+    if (!sp || sp.phase !== 's') continue;
+    const mass = moles * sp.molarMass;
+    totalMassG += mass;
+    formulas.push(sp.formula);
+    const [r, g, b] = parseHexColor(sp.color ?? '#e5e7eb');
+    rSum += r * mass;
+    gSum += g * mass;
+    bSum += b * mass;
+    wSum += mass;
+  }
+
+  if (wSum <= 0) {
+    return { massG: 0, color: 'rgba(255,255,255,0)', formulas: [] };
+  }
+
+  const r = Math.round(rSum / wSum);
+  const g = Math.round(gSum / wSum);
+  const b = Math.round(bSum / wSum);
+  return {
+    massG: totalMassG,
+    color: `rgba(${r}, ${g}, ${b}, 0.92)`,
+    formulas,
+  };
+}
+
+export function getHeadspaceGasInfo(mixture: Mixture): { moles: number; color: string; formulas: string[] } {
+  let gasMoles = 0;
+  let rSum = 210 * 0.05;
+  let gSum = 230 * 0.05;
+  let bSum = 250 * 0.05;
+  let wSum = 0.05;
+  let coloredGasMoles = 0;
+  const formulas: string[] = [];
+
+  for (const [id, moles] of Object.entries(mixture.moles)) {
+    if (moles <= 1e-6) continue;
+    const sp = SPECIES[id];
+    if (!sp || sp.phase !== 'g') continue;
+    gasMoles += moles;
+    formulas.push(sp.formula);
+    if (sp.color) {
+      const [r, g, b] = parseHexColor(sp.color);
+      rSum += r * moles * 5;
+      gSum += g * moles * 5;
+      bSum += b * moles * 5;
+      wSum += moles * 5;
+      coloredGasMoles += moles;
+    }
+  }
+
+  if (gasMoles <= 0) {
+    return { moles: 0, color: 'rgba(0,0,0,0)', formulas: [] };
+  }
+
+  const r = Math.round(rSum / wSum);
+  const g = Math.round(gSum / wSum);
+  const b = Math.round(bSum / wSum);
+  const alpha = coloredGasMoles > 0 ? Math.min(0.42, 0.12 + coloredGasMoles * 0.25) : Math.min(0.14, 0.04 + gasMoles * 0.03);
+  return {
+    moles: gasMoles,
+    color: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`,
+    formulas,
+  };
+}
+
+const SUBSCRIPT_MAP: Record<string, string> = {
+  '0': '₀',
+  '1': '₁',
+  '2': '₂',
+  '3': '₃',
+  '4': '₄',
+  '5': '₅',
+  '6': '₆',
+  '7': '₇',
+  '8': '₈',
+  '9': '₉',
+};
+
+export function formatFormula(formula: string): string {
+  return formula.replace(/([A-Za-z)\]])(\d+)/g, (_, prefix: string, digits: string) => {
+    const sub = digits
+      .split('')
+      .map((d) => SUBSCRIPT_MAP[d] ?? d)
+      .join('');
+    return `${prefix}${sub}`;
+  });
+}
+
+export function formatReactionEquation(reactionOrId: string | Reaction): string {
+  const rxn =
+    typeof reactionOrId === 'string'
+      ? REACTIONS.find((r) => r.id === reactionOrId)
+      : reactionOrId;
+  if (!rxn) return typeof reactionOrId === 'string' ? reactionOrId : '';
+
+  const formatSide = (side: Record<string, number>): string =>
+    Object.entries(side)
+      .map(([spId, coeff]) => {
+        const sp = SPECIES[spId];
+        const f = sp ? `${formatFormula(sp.formula)}(${sp.phase})` : spId;
+        return coeff > 1 ? `${coeff} ${f}` : f;
+      })
+      .join(' + ');
+
+  const arrow = rxn.reversible ? '⇌' : '→';
+  const dHStr = `ΔH = ${rxn.dH > 0 ? '+' : ''}${rxn.dH.toFixed(1)} kJ/mol`;
+  return `${formatSide(rxn.reactants)} ${arrow} ${formatSide(rxn.products)}  (${dHStr})`;
+}
+
+export function getSpeciesCategory(sp: Species): Exclude<ChemicalCategory, 'all'> {
+  if (sp.phase === 'g') return 'gases';
+  if (
+    ['C2H5OH', 'C6H12O6', 'C3H8', 'C2H4', 'CH3OH', 'CH4'].includes(sp.id)
+  ) {
+    return 'organics';
+  }
+  if (sp.ka !== undefined && sp.ka >= 1e-7 && sp.id !== 'NH4Cl') {
+    return 'acids';
+  }
+  if (
+    (sp.kb !== undefined && sp.kb >= 1e-6) ||
+    sp.id === 'Mg(OH)2' ||
+    sp.id === 'Cu(OH)2' ||
+    sp.id === 'Fe(OH)2'
+  ) {
+    return 'bases';
+  }
+  if (['Na', 'K', 'Ca', 'Mg', 'Al', 'Zn', 'Fe', 'Cu', 'Ag', 'C', 'S'].includes(sp.id)) {
+    return 'metals';
+  }
+  if (
+    ['H2O', 'H2O2', 'Br2', 'MgO', 'CaO', 'CuO', 'ZnO', 'Fe2O3', 'Al2O3'].includes(sp.id)
+  ) {
+    return 'liquids_oxides';
+  }
+  return 'salts';
+}
