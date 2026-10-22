@@ -1,8 +1,24 @@
 import './styles.css';
+import { pH } from './engine/solution';
+import { downloadTextFile } from './notebook/export';
+import { LiveTelemetryGraphs } from './notebook/graph';
+import { Entry, Notebook } from './notebook/notebook';
 import { LabBench } from './ui/bench';
 import { ToolbarAndInspectorUI } from './ui/toolbar';
 
-export function bootstrapApp(rootEl: HTMLElement): { bench: LabBench; ui: ToolbarAndInspectorUI } {
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function bootstrapApp(rootEl: HTMLElement): {
+  bench: LabBench;
+  ui: ToolbarAndInspectorUI;
+  notebook: Notebook;
+} {
   rootEl.innerHTML = `
     <header class="lab-header" id="lab-header"></header>
     <main class="bench-stage" id="bench-stage">
@@ -10,14 +26,41 @@ export function bootstrapApp(rootEl: HTMLElement): { bench: LabBench; ui: Toolba
       <div class="bench-overlay" id="bench-overlay"></div>
     </main>
     <footer class="lab-toolbar" id="lab-toolbar"></footer>
-    <aside class="lab-notebook" id="lab-notebook">
+    <aside class="lab-notebook" id="lab-notebook" aria-label="Laboratory Notebook and Live Telemetry">
       <div class="notebook-header">
         <span class="notebook-title">LAB NOTEBOOK & TELEMETRY</span>
+        <div class="notebook-export-btns">
+          <button type="button" class="nb-btn" id="btn-export-json" title="Export notebook entries as JSON">JSON</button>
+          <button type="button" class="nb-btn" id="btn-export-csv" title="Export notebook entries as CSV">CSV</button>
+          <button type="button" class="nb-btn" id="btn-clear-notebook" title="Clear saved notebook entries">Clear</button>
+        </div>
       </div>
-      <div class="notebook-log-section">
-        <div class="section-label">ACTIVITY LOG</div>
+
+      <section class="notebook-graphs-section" aria-label="Live Telemetry Charts">
+        <div class="graph-card">
+          <div class="graph-card-header">
+            <span>TEMPERATURE vs TIME</span>
+            <span id="graph-temp-readout">25.0 °C</span>
+          </div>
+          <canvas class="graph-canvas" id="graph-temp-canvas"></canvas>
+        </div>
+
+        <div class="graph-card">
+          <div class="graph-card-header">
+            <span>SOLUTION pH vs TIME</span>
+            <span id="graph-ph-readout">pH 7.00</span>
+          </div>
+          <canvas class="graph-canvas" id="graph-ph-canvas"></canvas>
+        </div>
+      </section>
+
+      <section class="notebook-log-section" aria-label="Notebook Activity Log">
+        <div class="pane-header">
+          <span class="section-label">AUTO-LOGGED ACTIONS</span>
+          <span class="pane-hint" id="notebook-entry-count">0 entries</span>
+        </div>
         <div class="notebook-log-list" id="notebook-log-list"></div>
-      </div>
+      </section>
     </aside>
   `;
 
@@ -26,26 +69,92 @@ export function bootstrapApp(rootEl: HTMLElement): { bench: LabBench; ui: Toolba
   const overlayEl = rootEl.querySelector('#bench-overlay') as HTMLElement;
   const toolbarEl = rootEl.querySelector('#lab-toolbar') as HTMLElement;
   const logListEl = rootEl.querySelector('#notebook-log-list') as HTMLElement;
+  const countEl = rootEl.querySelector('#notebook-entry-count') as HTMLElement;
 
+  const tempCanvas = rootEl.querySelector('#graph-temp-canvas') as HTMLCanvasElement;
+  const phCanvas = rootEl.querySelector('#graph-ph-canvas') as HTMLCanvasElement;
+  const tempReadout = rootEl.querySelector('#graph-temp-readout') as HTMLElement;
+  const phReadout = rootEl.querySelector('#graph-ph-readout') as HTMLElement;
+
+  const notebook = Notebook.load();
+  const graphs = new LiveTelemetryGraphs(tempCanvas, phCanvas, tempReadout, phReadout);
   let uiRef: ToolbarAndInspectorUI | null = null;
+
+  const renderNotebookList = (): void => {
+    const all = notebook.entries();
+    countEl.textContent = `${all.length} ${all.length === 1 ? 'entry' : 'entries'}`;
+    if (all.length === 0) {
+      logListEl.innerHTML = `
+        <div class="contents-empty">
+          No actions logged yet. Pour reagents, ignite, or heat a vessel to record observations.
+        </div>
+      `;
+      return;
+    }
+
+    // Show newest entries at the top
+    const recent = [...all].reverse().slice(0, 80);
+    logListEl.innerHTML = recent
+      .map((entry) => {
+        const isRxn = entry.action === 'reaction';
+        const isHazard =
+          entry.action === 'hazard' ||
+          entry.action === 'overflow' ||
+          (entry.hazards && entry.hazards.length > 0);
+        const cls = isHazard
+          ? 'nb-entry nb-entry-hazard'
+          : isRxn
+            ? 'nb-entry nb-entry-reaction'
+            : 'nb-entry';
+
+        const timeLabel = new Date(entry.timestamp).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+        const metricsPill =
+          entry.tempK !== undefined && entry.pH !== undefined
+            ? ` · ${(entry.tempK - 273.15).toFixed(1)}°C · pH ${entry.pH.toFixed(2)}`
+            : '';
+
+        return `
+          <div class="${cls}">
+            <div class="nb-entry-top">
+              <span>${escapeHtml(entry.action.toUpperCase())}${escapeHtml(metricsPill)}</span>
+              <span>${escapeHtml(timeLabel)}</span>
+            </div>
+            <div class="nb-entry-details">${escapeHtml(entry.details)}</div>
+          </div>
+        `;
+      })
+      .join('');
+  };
+
+  renderNotebookList();
+
+  let benchRef: LabBench | null = null;
 
   const bench = new LabBench(canvasEl, {
     onSelectVessel: (vessel) => {
       uiRef?.updateInspector(vessel);
     },
-    onLogEvent: (action, details) => {
-      if (logListEl) {
-        const entryEl = document.createElement('div');
-        entryEl.className = `nb-entry ${action === 'reaction' ? 'nb-entry-reaction' : ''}`;
-        entryEl.innerHTML = `
-          <div class="nb-entry-top">
-            <span>${action.toUpperCase()}</span>
-            <span>${new Date().toLocaleTimeString()}</span>
-          </div>
-          <div class="nb-entry-details">${details}</div>
-        `;
-        logListEl.prepend(entryEl);
-      }
+    onLogEvent: (action, details, vessel, extra) => {
+      const hasContents = vessel && Object.keys(vessel.mixture.moles).length > 0;
+      const entry: Entry = {
+        timestamp: Date.now(),
+        simTime: benchRef ? benchRef.simElapsedSeconds : 0,
+        action,
+        vesselId: vessel?.id,
+        details,
+        reaction: extra?.reaction,
+        tempK: vessel?.mixture.tempK,
+        pH: vessel ? (hasContents ? pH(vessel.mixture) : 7.0) : undefined,
+        pressureKPa: vessel?.lastStepResult.pressureKPa,
+        hazards: extra?.hazards,
+      };
+      notebook.log(entry);
+      notebook.save();
+      renderNotebookList();
     },
     onHazard: (hazards, message, vessel) => {
       uiRef?.showHazardBanner(hazards, message, vessel);
@@ -55,11 +164,15 @@ export function bootstrapApp(rootEl: HTMLElement): { bench: LabBench; ui: Toolba
     },
     onSimSample: (simTime, vessel) => {
       uiRef?.updateSimClock(simTime);
-      if (vessel && Math.floor(simTime * 10) % 5 === 0) {
-        uiRef?.updateInspector(vessel);
+      if (vessel) {
+        const hasContents = Object.keys(vessel.mixture.moles).length > 0;
+        const currentPh = hasContents ? pH(vessel.mixture) : 7.0;
+        graphs.sample(simTime, vessel.mixture.tempK, currentPh);
       }
     },
   });
+
+  benchRef = bench;
 
   const ui = new ToolbarAndInspectorUI(bench);
   uiRef = ui;
@@ -67,6 +180,28 @@ export function bootstrapApp(rootEl: HTMLElement): { bench: LabBench; ui: Toolba
   ui.mountHeader(headerEl);
   ui.mountBannersAndInspector(overlayEl);
   ui.mountBottomToolbar(toolbarEl);
+
+  // Wire Notebook Export & Clear buttons
+  rootEl.querySelector('#btn-export-json')?.addEventListener('click', () => {
+    downloadTextFile('chem-lab-notebook.json', notebook.toJSON(), 'application/json');
+    ui.showNotice('Exported lab notebook as chem-lab-notebook.json', 'info');
+  });
+
+  rootEl.querySelector('#btn-export-csv')?.addEventListener('click', () => {
+    downloadTextFile('chem-lab-notebook.csv', notebook.toCSV(), 'text/csv;charset=utf-8');
+    ui.showNotice('Exported lab notebook as chem-lab-notebook.csv', 'info');
+  });
+
+  rootEl.querySelector('#btn-clear-notebook')?.addEventListener('click', () => {
+    notebook.clear();
+    notebook.save();
+    graphs.reset();
+    renderNotebookList();
+    ui.showNotice('Cleared lab notebook and live telemetry charts.', 'info');
+  });
+
+  // Initial graph render
+  graphs.render();
 
   let lastTime = performance.now();
   const loop = (now: number) => {
@@ -77,7 +212,7 @@ export function bootstrapApp(rootEl: HTMLElement): { bench: LabBench; ui: Toolba
   };
   requestAnimationFrame(loop);
 
-  return { bench, ui };
+  return { bench, ui, notebook };
 }
 
 const appRoot = document.getElementById('app');
